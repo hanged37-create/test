@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>To-Do List</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="layout">
+  <div class="app">
+    <h1>📝 To-Do List</h1>
+
+    <form id="todo-form" class="todo-form">
+      <input
+        type="text"
+        id="todo-input"
+        class="todo-input"
+        placeholder="할 일을 입력하세요..."
+        autocomplete="off"
+        required
+      />
+      <div class="todo-form-row">
+        <input
+          type="text"
+          id="client-input"
+          class="client-input"
+          placeholder="거래처명"
+          autocomplete="off"
+        />
+        <select id="category-select">
+          <option value="vat">부가세</option>
+          <option value="income">종합소득세</option>
+          <option value="payroll">급여</option>
+          <option value="bookkeeping" selected>기장</option>
+          <option value="etc">기타</option>
+        </select>
+      </div>
+      <div class="todo-form-row">
+        <select id="priority-select">
+          <option value="high">🔴 높음</option>
+          <option value="medium" selected>🟡 보통</option>
+          <option value="low">🟢 낮음</option>
+        </select>
+        <input type="date" id="due-date-input" title="마감일" />
+        <label class="recurring-label" title="매월 같은 날짜로 반복 생성">
+          <input type="checkbox" id="recurring-checkbox" />
+          🔁 매월 반복
+        </label>
+        <button type="submit">추가</button>
+      </div>
+    </form>
+
+    <div class="controls">
+      <div class="filters" id="filter-buttons">
+        <button class="filter-btn active" data-filter="all">전체</button>
+        <button class="filter-btn" data-filter="active">진행중</button>
+        <button class="filter-btn" data-filter="completed">완료</button>
+      </div>
+
+      <div class="sort">
+        <label for="sort-select">정렬</label>
+        <select id="sort-select">
+          <option value="default">기본</option>
+          <option value="priority-desc">우선순위 높은순</option>
+          <option value="priority-asc">우선순위 낮은순</option>
+          <option value="due-asc">마감일 빠른순</option>
+          <option value="client-asc">거래처명순</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="category-filters" id="category-filter-buttons">
+      <button class="category-filter-btn active" data-category="all">전체<span class="cat-count" data-cat="all"></span></button>
+      <button class="category-filter-btn" data-category="vat">부가세<span class="cat-count" data-cat="vat"></span></button>
+      <button class="category-filter-btn" data-category="income">종합소득세<span class="cat-count" data-cat="income"></span></button>
+      <button class="category-filter-btn" data-category="payroll">급여<span class="cat-count" data-cat="payroll"></span></button>
+      <button class="category-filter-btn" data-category="bookkeeping">기장<span class="cat-count" data-cat="bookkeeping"></span></button>
+      <button class="category-filter-btn" data-category="etc">기타<span class="cat-count" data-cat="etc"></span></button>
+    </div>
+
+    <div id="date-filter-bar" class="date-filter-bar" hidden>
+      <span id="date-filter-label"></span>
+      <button type="button" id="date-filter-clear">✕ 해제</button>
+    </div>
+
+    <ul id="todo-list" class="todo-list"></ul>
+
+    <div class="footer">
+      <span id="items-left">0개 남음</span>
+      <div class="footer-actions">
+        <button id="export-btn" type="button" title="캘린더에 표시된 달 기준으로 내보냅니다">📊 엑셀 내보내기</button>
+        <button id="clear-completed">완료된 항목 삭제</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="calendar-widget">
+    <div class="calendar-header">
+      <button type="button" id="cal-prev" aria-label="이전 달">‹</button>
+      <span id="cal-month-label"></span>
+      <button type="button" id="cal-next" aria-label="다음 달">›</button>
+    </div>
+    <div class="calendar-weekdays">
+      <span>일</span><span>월</span><span>화</span><span>수</span>
+      <span>목</span><span>금</span><span>토</span>
+    </div>
+    <div class="calendar-grid" id="calendar-grid"></div>
+  </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
