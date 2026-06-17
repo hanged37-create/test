@@ -4,14 +4,20 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: "Segoe UI", "Apple SD Gothic Neo", Roboto, sans-serif;
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 40px 16px;
+  padding: 20px 16px;
 }
 
 .layout {
@@ -20,15 +26,24 @@ body {
   align-items: flex-start;
   flex-wrap: wrap;
   justify-content: center;
+  height: 100%;
+  max-width: 1500px;
+  width: 100%;
 }
 
 .app {
   width: 100%;
-  max-width: 520px;
+  max-width: 980px;
+  height: 100%;
   background: #ffffff;
   border-radius: 16px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-  padding: 28px 28px 20px;
+  padding: 20px 24px 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 700px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* 캘린더 위젯 (10cm x 10cm, 오른쪽 상단) */
@@ -42,6 +57,8 @@ body {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  align-self: flex-start;
 }
 
 .calendar-header {
@@ -130,19 +147,76 @@ body {
   border-radius: 50%;
 }
 
+.calendar-tooltip {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+  padding: 10px 12px;
+  font-size: 0.78rem;
+}
+
+.calendar-tooltip-header {
+  font-weight: 700;
+  color: #2d2d3a;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+}
+
+.calendar-tooltip-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px solid #f1f1f6;
+}
+
+.calendar-tooltip-item:first-of-type {
+  border-top: none;
+}
+
+.calendar-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.calendar-tooltip-client {
+  font-weight: 700;
+  color: #4f46e5;
+  flex-shrink: 0;
+}
+
+.calendar-tooltip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #2d2d3a;
+}
+
 h1 {
   text-align: center;
   color: #2d2d3a;
-  margin-bottom: 20px;
-  font-size: 1.6rem;
+  margin-bottom: 12px;
+  font-size: 1.4rem;
+  flex-shrink: 0;
 }
 
 /* 입력 폼 */
 .todo-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 18px;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .todo-form-row {
@@ -243,7 +317,8 @@ h1 {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .filters {
@@ -294,7 +369,8 @@ h1 {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .category-filter-btn {
@@ -331,10 +407,11 @@ h1 {
   align-items: center;
   background: #eef0ff;
   color: #4f46e5;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-radius: 8px;
   font-size: 0.85rem;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 #date-filter-clear {
@@ -351,56 +428,50 @@ h1 {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 420px;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .todo-item {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
   background: #f8f8fc;
   border-left: 4px solid #ccc;
   animation: fadeIn 0.2s ease-in;
 }
 
 .todo-item input[type="checkbox"] {
-  margin-top: 3px;
+  flex-shrink: 0;
 }
 
-.todo-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.todo-meta {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 0.75rem;
+.due-date {
+  font-size: 0.78rem;
   color: #999;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.todo-meta .due-date.overdue {
+.completed-date {
+  font-size: 0.78rem;
+  color: #999;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.due-date.overdue {
   color: #dc2626;
   font-weight: 700;
 }
 
-.todo-meta .due-date.soon {
+.due-date.soon {
   color: #f97316;
   font-weight: 700;
-}
-
-.todo-item .priority-badge,
-.todo-item .delete-btn {
-  margin-top: 2px;
 }
 
 .todo-item.priority-high {
@@ -425,9 +496,12 @@ h1 {
 
 .todo-text {
   flex: 1;
-  font-size: 0.95rem;
+  min-width: 0;
+  font-size: 0.9rem;
   color: #2d2d3a;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .todo-item.completed .todo-text {
@@ -464,7 +538,17 @@ h1 {
   border-radius: 12px;
   font-weight: 600;
   flex-shrink: 0;
-  align-self: flex-start;
+  white-space: nowrap;
+}
+
+.category-badge.education {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.category-badge.withholding {
+  background: #fef3c7;
+  color: #b45309;
 }
 
 .category-badge.vat {
@@ -472,19 +556,34 @@ h1 {
   color: #2563eb;
 }
 
+.category-badge.corporate {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
 .category-badge.income {
   background: #ede9fe;
   color: #7c3aed;
 }
 
-.category-badge.payroll {
-  background: #fce7f3;
-  color: #db2777;
+.category-badge.civil {
+  background: #ffe4e6;
+  color: #e11d48;
 }
 
-.category-badge.bookkeeping {
-  background: #ccfbf1;
-  color: #0d9488;
+.category-badge.outsourcing {
+  background: #cffafe;
+  color: #0e7490;
+}
+
+.category-badge.property {
+  background: #ecfccb;
+  color: #4d7c0f;
+}
+
+.category-badge.consult {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .category-badge.etc {
@@ -493,9 +592,11 @@ h1 {
 }
 
 .client-tag {
+  font-size: 0.85rem;
   font-weight: 700;
   color: #4f46e5;
-  margin-right: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .recurring-badge {
@@ -504,7 +605,7 @@ h1 {
   border-radius: 12px;
   font-weight: 600;
   flex-shrink: 0;
-  align-self: flex-start;
+  white-space: nowrap;
   background: #e0e7ff;
   color: #4f46e5;
 }
@@ -613,10 +714,11 @@ h1 {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid #eee;
   font-size: 0.85rem;
   color: #888;
+  flex-shrink: 0;
 }
 
 .footer-actions {
@@ -625,7 +727,8 @@ h1 {
   gap: 12px;
 }
 
-#export-btn {
+#export-btn,
+#import-btn {
   background: none;
   border: 1px solid #d9dbe3;
   color: #555;
@@ -636,7 +739,8 @@ h1 {
   transition: background 0.2s;
 }
 
-#export-btn:hover {
+#export-btn:hover,
+#import-btn:hover {
   background: #f5f5fa;
 }
 

@@ -4,12 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>To-Do List</title>
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="layout">
   <div class="app">
-    <h1>📝 To-Do List</h1>
+    <h1>To-Do List</h1>
 
     <form id="todo-form" class="todo-form">
       <input
@@ -29,23 +30,28 @@
           autocomplete="off"
         />
         <select id="category-select">
+          <option value="outsourcing" selected>아웃소싱</option>
+          <option value="education">교육 및 개발</option>
+          <option value="withholding">원천세</option>
           <option value="vat">부가세</option>
-          <option value="income">종합소득세</option>
-          <option value="payroll">급여</option>
-          <option value="bookkeeping" selected>기장</option>
+          <option value="corporate">법인세</option>
+          <option value="income">소득세</option>
+          <option value="civil">민원</option>
+          <option value="property">재산세</option>
+          <option value="consult">상담</option>
           <option value="etc">기타</option>
         </select>
       </div>
       <div class="todo-form-row">
         <select id="priority-select">
-          <option value="high">🔴 높음</option>
-          <option value="medium" selected>🟡 보통</option>
-          <option value="low">🟢 낮음</option>
+          <option value="high">높음</option>
+          <option value="medium" selected>보통</option>
+          <option value="low">낮음</option>
         </select>
         <input type="date" id="due-date-input" title="마감일" />
         <label class="recurring-label" title="매월 같은 날짜로 반복 생성">
           <input type="checkbox" id="recurring-checkbox" />
-          🔁 매월 반복
+          매월 반복
         </label>
         <button type="submit">추가</button>
       </div>
@@ -72,10 +78,15 @@
 
     <div class="category-filters" id="category-filter-buttons">
       <button class="category-filter-btn active" data-category="all">전체<span class="cat-count" data-cat="all"></span></button>
+      <button class="category-filter-btn" data-category="outsourcing">아웃소싱<span class="cat-count" data-cat="outsourcing"></span></button>
+      <button class="category-filter-btn" data-category="education">교육 및 개발<span class="cat-count" data-cat="education"></span></button>
+      <button class="category-filter-btn" data-category="withholding">원천세<span class="cat-count" data-cat="withholding"></span></button>
       <button class="category-filter-btn" data-category="vat">부가세<span class="cat-count" data-cat="vat"></span></button>
-      <button class="category-filter-btn" data-category="income">종합소득세<span class="cat-count" data-cat="income"></span></button>
-      <button class="category-filter-btn" data-category="payroll">급여<span class="cat-count" data-cat="payroll"></span></button>
-      <button class="category-filter-btn" data-category="bookkeeping">기장<span class="cat-count" data-cat="bookkeeping"></span></button>
+      <button class="category-filter-btn" data-category="corporate">법인세<span class="cat-count" data-cat="corporate"></span></button>
+      <button class="category-filter-btn" data-category="income">소득세<span class="cat-count" data-cat="income"></span></button>
+      <button class="category-filter-btn" data-category="civil">민원<span class="cat-count" data-cat="civil"></span></button>
+      <button class="category-filter-btn" data-category="property">재산세<span class="cat-count" data-cat="property"></span></button>
+      <button class="category-filter-btn" data-category="consult">상담<span class="cat-count" data-cat="consult"></span></button>
       <button class="category-filter-btn" data-category="etc">기타<span class="cat-count" data-cat="etc"></span></button>
     </div>
 
@@ -89,7 +100,9 @@
     <div class="footer">
       <span id="items-left">0개 남음</span>
       <div class="footer-actions">
-        <button id="export-btn" type="button" title="캘린더에 표시된 달 기준으로 내보냅니다">📊 엑셀 내보내기</button>
+        <button id="import-btn" type="button" title="JSON 백업 파일에서 항목을 가져옵니다">데이터 가져오기</button>
+        <input type="file" id="import-file-input" accept="application/json" hidden />
+        <button id="export-btn" type="button" title="캘린더에 표시된 달 기준으로 내보냅니다">엑셀 내보내기</button>
         <button id="clear-completed">완료된 항목 삭제</button>
       </div>
     </div>
@@ -107,8 +120,11 @@
     </div>
     <div class="calendar-grid" id="calendar-grid"></div>
   </div>
+
+  <div id="calendar-tooltip" class="calendar-tooltip"></div>
   </div>
 
+  <script src="vendor/sql-wasm.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

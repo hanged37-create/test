@@ -1,4 +1,7 @@
-const STORAGE_KEY = "todos";
+const STORAGE_KEY = "todos"; // 예전 localStorage 버전 데이터 마이그레이션용
+const IDB_NAME = "todoAppDB";
+const IDB_STORE = "sqlite";
+const IDB_KEY = "dbfile";
 
 const todoForm = document.getElementById("todo-form");
 const todoInput = document.getElementById("todo-input");
@@ -19,28 +22,138 @@ const dateFilterBar = document.getElementById("date-filter-bar");
 const dateFilterLabel = document.getElementById("date-filter-label");
 const dateFilterClearBtn = document.getElementById("date-filter-clear");
 const exportBtn = document.getElementById("export-btn");
+const importBtn = document.getElementById("import-btn");
+const importFileInput = document.getElementById("import-file-input");
 
-let todos = loadTodos();
+let todos = [];
+let db = null;
 let currentFilter = "all";
 let currentCategoryFilter = "all";
 let currentSort = "default";
 let selectedDateFilter = null; // "YYYY-MM-DD" | null
 let editingId = null;
 
-function loadTodos() {
+/* ---------- IndexedDB: sql.js가 만든 SQLite 파일(바이너리)을 저장/로드 ---------- */
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function loadDbFile() {
+  const idb = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = idb.transaction(IDB_STORE, "readonly");
+    const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function persistDb() {
+  const data = db.export();
+  const idb = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = idb.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(data, IDB_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ---------- SQLite 초기화 ---------- */
+async function initDatabase() {
+  const SQL = await initSqlJs({
+    locateFile: (file) => `vendor/${file}`,
+  });
+
+  const existing = await loadDbFile();
+  if (existing) {
+    db = new SQL.Database(existing);
+  } else {
+    db = new SQL.Database();
+    db.run(`
+      CREATE TABLE todos (
+        id INTEGER PRIMARY KEY,
+        text TEXT NOT NULL,
+        client TEXT,
+        category TEXT,
+        priority TEXT,
+        dueDate TEXT,
+        recurring INTEGER DEFAULT 0,
+        completed INTEGER DEFAULT 0,
+        completedAt TEXT
+      );
+    `);
+    migrateFromLocalStorage();
+    await persistDb();
+  }
+
+  refreshTodosFromDb();
+  render();
+}
+
+// 이전 버전(localStorage)에 저장된 데이터가 있으면 SQLite로 옮겨옴
+function migrateFromLocalStorage() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const oldTodos = JSON.parse(raw);
+    oldTodos.forEach((t) => insertTodoRow(t));
+    localStorage.removeItem(STORAGE_KEY);
   } catch {
-    return [];
+    // 마이그레이션할 데이터가 없거나 손상된 경우 무시
   }
 }
 
-function saveTodos() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+function insertTodoRow(t) {
+  db.run(
+    `INSERT INTO todos (id, text, client, category, priority, dueDate, recurring, completed, completedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      t.id,
+      t.text,
+      t.client || "",
+      t.category || null,
+      t.priority || null,
+      t.dueDate || null,
+      t.recurring ? 1 : 0,
+      t.completed ? 1 : 0,
+      t.completedAt || null,
+    ]
+  );
+}
+
+function refreshTodosFromDb() {
+  const result = db.exec(
+    "SELECT id, text, client, category, priority, dueDate, recurring, completed, completedAt FROM todos"
+  );
+  if (result.length === 0) {
+    todos = [];
+    return;
+  }
+  const { columns, values } = result[0];
+  todos = values.map((row) => {
+    const obj = {};
+    columns.forEach((col, i) => (obj[col] = row[i]));
+    obj.recurring = !!obj.recurring;
+    obj.completed = !!obj.completed;
+    return obj;
+  });
+}
+
+function persistAndRender() {
+  refreshTodosFromDb();
+  persistDb();
+  render();
 }
 
 function addTodo({ text, client, category, priority, dueDate, recurring }) {
-  todos.push({
+  if (!db) return;
+  insertTodoRow({
     id: Date.now(),
     text,
     client: client || "",
@@ -51,8 +164,7 @@ function addTodo({ text, client, category, priority, dueDate, recurring }) {
     completed: false,
     completedAt: null,
   });
-  saveTodos();
-  render();
+  persistAndRender();
 }
 
 // 같은 날짜(말일은 보정)로 한 달 뒤의 날짜 문자열("YYYY-MM-DD")을 반환
@@ -72,49 +184,95 @@ function getNextMonthDueDate(dateStr) {
 }
 
 function updateTodo(id, updates) {
-  const todo = todos.find((t) => t.id === id);
-  if (todo) Object.assign(todo, updates);
-  saveTodos();
+  if (!db) return;
+  const fields = Object.keys(updates);
+  if (fields.length === 0) return;
+  const setClause = fields.map((f) => `${f} = ?`).join(", ");
+  const values = fields.map((f) => updates[f]);
+  db.run(`UPDATE todos SET ${setClause} WHERE id = ?`, [...values, id]);
   editingId = null;
-  render();
+  persistAndRender();
 }
 
 function toggleTodo(id) {
+  if (!db) return;
   const todo = todos.find((t) => t.id === id);
-  if (todo) {
-    const wasCompleted = todo.completed;
-    todo.completed = !todo.completed;
-    todo.completedAt = todo.completed ? new Date().toISOString() : null;
+  if (!todo) return;
 
-    // 매월 반복 항목을 완료하면 다음 달 같은 날짜로 새 항목을 자동 생성
-    if (todo.completed && !wasCompleted && todo.recurring && todo.dueDate) {
-      todos.push({
-        id: Date.now(),
-        text: todo.text,
-        client: todo.client,
-        category: todo.category,
-        priority: todo.priority,
-        dueDate: getNextMonthDueDate(todo.dueDate),
-        recurring: true,
-        completed: false,
-        completedAt: null,
-      });
-    }
+  const wasCompleted = todo.completed;
+  const nowCompleted = !wasCompleted;
+  const completedAt = nowCompleted ? new Date().toISOString() : null;
+  db.run("UPDATE todos SET completed = ?, completedAt = ? WHERE id = ?", [
+    nowCompleted ? 1 : 0,
+    completedAt,
+    id,
+  ]);
+
+  // 매월 반복 항목을 완료하면 다음 달 같은 날짜로 새 항목을 자동 생성
+  if (nowCompleted && !wasCompleted && todo.recurring && todo.dueDate) {
+    insertTodoRow({
+      id: Date.now(),
+      text: todo.text,
+      client: todo.client,
+      category: todo.category,
+      priority: todo.priority,
+      dueDate: getNextMonthDueDate(todo.dueDate),
+      recurring: true,
+      completed: false,
+      completedAt: null,
+    });
   }
-  saveTodos();
-  render();
+
+  persistAndRender();
 }
 
 function deleteTodo(id) {
-  todos = todos.filter((t) => t.id !== id);
-  saveTodos();
-  render();
+  if (!db) return;
+  db.run("DELETE FROM todos WHERE id = ?", [id]);
+  persistAndRender();
 }
 
 function clearCompleted() {
-  todos = todos.filter((t) => !t.completed);
-  saveTodos();
-  render();
+  if (!db) return;
+  db.run("DELETE FROM todos WHERE completed = 1");
+  persistAndRender();
+}
+
+// file://에서 내보낸 todos-backup.json을 읽어 SQLite로 가져옴 (id 충돌 시 덮어씀)
+function importTodosFromJSON(jsonText) {
+  if (!db) return;
+  let imported;
+  try {
+    imported = JSON.parse(jsonText);
+  } catch {
+    alert("올바른 JSON 파일이 아닙니다.");
+    return;
+  }
+  if (!Array.isArray(imported)) {
+    alert("올바른 백업 파일 형식이 아닙니다.");
+    return;
+  }
+
+  imported.forEach((t) => {
+    db.run(
+      `INSERT OR REPLACE INTO todos (id, text, client, category, priority, dueDate, recurring, completed, completedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        t.id,
+        t.text,
+        t.client || "",
+        t.category || null,
+        t.priority || null,
+        t.dueDate || null,
+        t.recurring ? 1 : 0,
+        t.completed ? 1 : 0,
+        t.completedAt || null,
+      ]
+    );
+  });
+
+  persistAndRender();
+  alert(`${imported.length}개 항목을 가져왔습니다.`);
 }
 
 const priorityRank = { high: 3, medium: 2, low: 1 };
@@ -180,20 +338,23 @@ function getFilteredAndSortedTodos() {
 }
 
 const priorityLabel = {
-  high: "🔴 높음",
-  medium: "🟡 보통",
-  low: "🟢 낮음",
+  high: "높음",
+  medium: "보통",
+  low: "낮음",
 };
 
 const categoryLabel = {
+  outsourcing: "아웃소싱",
+  education: "교육 및 개발",
+  withholding: "원천세",
   vat: "부가세",
-  income: "종합소득세",
-  payroll: "급여",
-  bookkeeping: "기장",
+  corporate: "법인세",
+  income: "소득세",
+  civil: "민원",
+  property: "재산세",
+  consult: "상담",
   etc: "기타",
 };
-
-const priorityPlainLabel = { high: "높음", medium: "보통", low: "낮음" };
 
 function formatDate(isoOrDateStr) {
   const d = new Date(isoOrDateStr);
@@ -243,81 +404,73 @@ function render() {
       checkbox.type = "checkbox";
       checkbox.checked = todo.completed;
       checkbox.addEventListener("change", () => toggleTodo(todo.id));
+      li.appendChild(checkbox);
 
-      const main = document.createElement("div");
-      main.className = "todo-main";
-
-      const span = document.createElement("span");
-      span.className = "todo-text";
       if (todo.client) {
         const clientTag = document.createElement("span");
         clientTag.className = "client-tag";
         clientTag.textContent = `[${todo.client}]`;
-        span.appendChild(clientTag);
+        li.appendChild(clientTag);
       }
-      span.appendChild(document.createTextNode(todo.text));
-      main.appendChild(span);
 
       if (todo.category) {
         const catBadge = document.createElement("span");
         catBadge.className = `category-badge ${todo.category}`;
         catBadge.textContent = categoryLabel[todo.category];
-        main.appendChild(catBadge);
+        li.appendChild(catBadge);
       }
+
+      const span = document.createElement("span");
+      span.className = "todo-text";
+      span.textContent = todo.text;
+      span.title = todo.text;
+      li.appendChild(span);
 
       if (todo.recurring) {
         const recurBadge = document.createElement("span");
         recurBadge.className = "recurring-badge";
-        recurBadge.textContent = "🔁 매월 반복";
-        main.appendChild(recurBadge);
+        recurBadge.textContent = "반복";
+        recurBadge.title = "매월 반복";
+        li.appendChild(recurBadge);
       }
 
-      if (todo.dueDate || todo.completedAt) {
-        const meta = document.createElement("div");
-        meta.className = "todo-meta";
+      if (todo.dueDate) {
+        const urgency = todo.completed ? null : getDueUrgency(todo.dueDate);
+        const due = document.createElement("span");
+        due.className = `due-date${urgency ? ` ${urgency}` : ""}`;
+        due.textContent = `마감 ${formatDate(todo.dueDate)}`;
+        li.appendChild(due);
+      }
 
-        if (todo.dueDate) {
-          const urgency = todo.completed ? null : getDueUrgency(todo.dueDate);
-          const due = document.createElement("span");
-          due.className = `due-date${urgency ? ` ${urgency}` : ""}`;
-          due.textContent = `📅 마감 ${formatDate(todo.dueDate)}`;
-          meta.appendChild(due);
-        }
-
-        if (todo.completedAt) {
-          const completed = document.createElement("span");
-          completed.className = "completed-date";
-          completed.textContent = `✅ 완료 ${formatDate(todo.completedAt)}`;
-          meta.appendChild(completed);
-        }
-
-        main.appendChild(meta);
+      if (todo.completedAt) {
+        const completed = document.createElement("span");
+        completed.className = "completed-date";
+        completed.textContent = `완료 ${formatDate(todo.completedAt)}`;
+        li.appendChild(completed);
       }
 
       const badge = document.createElement("span");
       badge.className = `priority-badge ${todo.priority}`;
       badge.textContent = priorityLabel[todo.priority];
+      li.appendChild(badge);
 
       const editBtn = document.createElement("button");
       editBtn.className = "edit-btn";
-      editBtn.textContent = "✏️";
+      editBtn.textContent = "수정";
       editBtn.title = "수정";
       editBtn.addEventListener("click", () => {
         editingId = todo.id;
         render();
       });
+      li.appendChild(editBtn);
 
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "delete-btn";
       deleteBtn.textContent = "✕";
       deleteBtn.title = "삭제";
       deleteBtn.addEventListener("click", () => deleteTodo(todo.id));
-
-      li.appendChild(checkbox);
-      li.appendChild(main);
-      li.appendChild(badge);
-      li.appendChild(editBtn);
       li.appendChild(deleteBtn);
+
       todoList.appendChild(li);
     });
   }
@@ -434,7 +587,7 @@ function buildEditForm(todo) {
 function renderDateFilterBar() {
   if (selectedDateFilter) {
     dateFilterBar.hidden = false;
-    dateFilterLabel.textContent = `📅 ${selectedDateFilter} 마감 항목만 표시 중`;
+    dateFilterLabel.textContent = `${selectedDateFilter} 마감 항목만 표시 중`;
   } else {
     dateFilterBar.hidden = true;
   }
@@ -445,6 +598,9 @@ const calMonthLabel = document.getElementById("cal-month-label");
 const calGrid = document.getElementById("calendar-grid");
 const calPrevBtn = document.getElementById("cal-prev");
 const calNextBtn = document.getElementById("cal-next");
+const calendarTooltip = document.getElementById("calendar-tooltip");
+
+const priorityDotColor = { high: "#ef4444", medium: "#f59e0b", low: "#22c55e" };
 
 let calendarViewDate = new Date();
 calendarViewDate.setDate(1);
@@ -512,12 +668,68 @@ function renderCalendar() {
       const dot = document.createElement("span");
       dot.className = "due-dot";
       dot.style.backgroundColor = getDateDotColor(key);
-      dot.title = dueTodos.map((t) => t.text).join(", ");
       cell.appendChild(dot);
+
+      cell.addEventListener("mouseenter", () =>
+        showCalendarTooltip(cell, key, dueTodos)
+      );
+      cell.addEventListener("mouseleave", hideCalendarTooltip);
     }
 
     calGrid.appendChild(cell);
   }
+}
+
+// 우선순위가 높은 순, 동일 우선순위 내에서는 거래처명순으로 정렬해 보여줌
+function showCalendarTooltip(cell, dateKey, dueTodos) {
+  const sorted = [...dueTodos].sort(
+    (a, b) =>
+      priorityRank[b.priority] - priorityRank[a.priority] ||
+      compareByClient(a, b)
+  );
+
+  calendarTooltip.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "calendar-tooltip-header";
+  header.textContent = `${dateKey} 마감 (${sorted.length}건)`;
+  calendarTooltip.appendChild(header);
+
+  sorted.forEach((t) => {
+    const item = document.createElement("div");
+    item.className = "calendar-tooltip-item";
+
+    const dot = document.createElement("span");
+    dot.className = "calendar-tooltip-dot";
+    dot.style.backgroundColor = priorityDotColor[t.priority];
+    item.appendChild(dot);
+
+    if (t.client) {
+      const client = document.createElement("span");
+      client.className = "calendar-tooltip-client";
+      client.textContent = `[${t.client}]`;
+      item.appendChild(client);
+    }
+
+    const text = document.createElement("span");
+    text.className = "calendar-tooltip-text";
+    text.textContent = t.text;
+    item.appendChild(text);
+
+    calendarTooltip.appendChild(item);
+  });
+
+  const rect = cell.getBoundingClientRect();
+  calendarTooltip.style.left = `${Math.min(
+    rect.left,
+    window.innerWidth - 250
+  )}px`;
+  calendarTooltip.style.top = `${rect.bottom + 6}px`;
+  calendarTooltip.style.display = "block";
+}
+
+function hideCalendarTooltip() {
+  calendarTooltip.style.display = "none";
 }
 
 function escapeCsvField(field) {
@@ -558,7 +770,7 @@ function exportMonthToCSV() {
     t.client || "",
     categoryLabel[t.category] || "",
     t.text,
-    priorityPlainLabel[t.priority] || t.priority,
+    priorityLabel[t.priority] || t.priority,
     t.dueDate || "",
     t.completed ? "완료" : "미완료",
     t.completedAt ? formatDate(t.completedAt) : "",
@@ -584,6 +796,17 @@ function exportMonthToCSV() {
 }
 
 exportBtn.addEventListener("click", exportMonthToCSV);
+
+importBtn.addEventListener("click", () => importFileInput.click());
+
+importFileInput.addEventListener("change", () => {
+  const file = importFileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => importTodosFromJSON(reader.result);
+  reader.readAsText(file);
+  importFileInput.value = "";
+});
 
 calPrevBtn.addEventListener("click", () => {
   calendarViewDate.setMonth(calendarViewDate.getMonth() - 1);
@@ -648,4 +871,54 @@ sortSelect.addEventListener("change", () => {
 
 clearCompletedBtn.addEventListener("click", clearCompleted);
 
-render();
+// file://로 열린 경우 SQLite(sql.js)가 fetch 제약 때문에 동작할 수 없으므로,
+// 이 파일에 남아있는 예전 localStorage 데이터를 내보낼 수 있는 안내만 보여줌
+function showFileProtocolExportNotice() {
+  const banner = document.createElement("div");
+  banner.style.cssText =
+    "background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:0.85rem;color:#92400e;line-height:1.5;";
+
+  const raw = localStorage.getItem(STORAGE_KEY);
+  let count = 0;
+  try {
+    count = raw ? JSON.parse(raw).length : 0;
+  } catch {
+    count = 0;
+  }
+
+  if (!raw || count === 0) {
+    banner.textContent =
+      "이 위치(file://)에서는 SQLite 기능이 동작하지 않습니다. http://localhost:8000 으로 열어서 사용해 주세요. (이 페이지의 localStorage에서 예전 데이터는 찾지 못했습니다.)";
+    document.querySelector(".app").prepend(banner);
+    return;
+  }
+
+  const msg = document.createElement("p");
+  msg.textContent = `이 위치(file://)에서는 SQLite가 동작하지 않지만, 이 페이지에 저장된 예전 데이터 ${count}건을 찾았습니다. 아래 버튼으로 내보낸 뒤 http://localhost:8000 앱의 "데이터 가져오기"로 불러오세요.`;
+
+  const btn = document.createElement("button");
+  btn.textContent = "JSON 파일로 내보내기";
+  btn.style.cssText =
+    "margin-top:8px;padding:8px 16px;border:none;border-radius:6px;background:#f59e0b;color:#fff;cursor:pointer;font-weight:600;";
+  btn.addEventListener("click", () => {
+    const blob = new Blob([raw], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "todos-backup.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  banner.appendChild(msg);
+  banner.appendChild(btn);
+  document.querySelector(".app").prepend(banner);
+}
+
+if (location.protocol === "file:") {
+  showFileProtocolExportNotice();
+} else {
+  initDatabase();
+}
