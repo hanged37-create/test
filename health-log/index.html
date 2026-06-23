@@ -12,6 +12,7 @@
     <header class="app-header">
       <h1>식단·운동 기록</h1>
       <div class="header-actions">
+        <button type="button" id="settings-btn" title="기초대사량/나이 설정">⚙ 설정</button>
         <button type="button" id="backup-btn" title="전체 데이터를 JSON 파일로 백업">백업</button>
         <button type="button" id="import-btn" title="백업 파일에서 가져오기">가져오기</button>
         <input type="file" id="import-file-input" accept="application/json" hidden />
@@ -56,9 +57,26 @@
     <div class="modal-box">
       <p id="calorie-modal-label"></p>
       <input type="number" id="calorie-modal-input" placeholder="칼로리 (kcal)" inputmode="numeric" min="0" />
+      <div id="calorie-modal-macros" class="modal-macros">
+        <input type="number" id="calorie-modal-carb" placeholder="탄수화물(g)" inputmode="numeric" min="0" />
+        <input type="number" id="calorie-modal-protein" placeholder="단백질(g)" inputmode="numeric" min="0" />
+        <input type="number" id="calorie-modal-fat" placeholder="지방(g)" inputmode="numeric" min="0" />
+      </div>
       <div class="modal-actions">
         <button type="button" id="calorie-modal-skip">건너뛰기</button>
         <button type="button" id="calorie-modal-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <p>하루 기준치를 입력하면 부족한 영양소를 알려드려요.</p>
+      <input type="number" id="settings-bmr-input" placeholder="기초대사량 (kcal)" inputmode="numeric" min="0" />
+      <input type="number" id="settings-age-input" placeholder="나이" inputmode="numeric" min="0" />
+      <div class="modal-actions">
+        <button type="button" id="settings-modal-cancel">취소</button>
+        <button type="button" id="settings-modal-save">저장</button>
       </div>
     </div>
   </div>

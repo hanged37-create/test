@@ -222,6 +222,12 @@ body {
 .log-edit-form {
   flex: 1;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.log-edit-row {
+  display: flex;
   gap: 6px;
 }
 
@@ -232,10 +238,11 @@ body {
   border-radius: 6px;
   font-size: 0.9rem;
   outline: none;
+  min-width: 0;
 }
 
 .log-edit-form input.log-edit-kcal {
-  flex: 0 0 70px;
+  flex: 1 1 0;
 }
 
 .log-edit-form button {
@@ -259,12 +266,32 @@ body {
 /* 일별 합계 */
 .day-total {
   text-align: center;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #374151;
   padding: 8px 16px;
   border-top: 1px solid #eee;
   flex-shrink: 0;
+}
+
+.day-total-kcal {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #374151;
+}
+
+.day-total-macros {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.day-total-advice {
+  font-size: 0.78rem;
+  color: #b45309;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.day-total-advice.ok {
+  color: #15803d;
 }
 
 /* 하단 빠른 추가 바 */
@@ -415,6 +442,23 @@ body {
 
 .modal-box input[type="number"]:focus {
   border-color: #16a34a;
+}
+
+.modal-macros {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.modal-macros:not([hidden]) {
+  display: grid;
+}
+
+.modal-macros input[type="number"] {
+  margin-bottom: 0;
+  padding: 10px 8px;
+  font-size: 0.85rem;
+  text-align: center;
 }
 
 .modal-actions {
