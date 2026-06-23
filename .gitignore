@@ -1,1 +1,4 @@
 .claude/settings.local.json
+*-backup-*.json
+todos-full-backup*.json
+health-log-backup*.json
