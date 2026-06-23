@@ -173,7 +173,27 @@ function migrateSchema() {
       db.run(`ALTER TABLE calorie_dict ADD COLUMN ${col} REAL`);
     }
   });
+  backfillMissingMacros();
   persistDb();
+}
+
+// 영양소 기능 추가 전에 기록된 식단 항목 중, 지금 사전에 있는 단어와 일치하면 탄단지를 채워줌
+function backfillMissingMacros() {
+  const result = db.exec(
+    "SELECT id, text FROM logs WHERE type = 'diet' AND carb IS NULL"
+  );
+  if (result.length === 0) return;
+  const { values } = result[0];
+  values.forEach(([id, text]) => {
+    const nutrition = estimateDietNutrition(text);
+    if (!nutrition) return;
+    db.run("UPDATE logs SET carb = ?, protein = ?, fat = ? WHERE id = ?", [
+      nutrition.carb,
+      nutrition.protein,
+      nutrition.fat,
+      id,
+    ]);
+  });
 }
 
 function dictKey(type, text) {
@@ -246,6 +266,7 @@ const DIET_DICTIONARY = [
   ["회식", 700, 60, 35, 35],
   ["킷캣", 100, 12, 1, 5],
   ["킷켓", 100, 12, 1, 5],
+  ["꼬북칩", 437, 50, 5, 21],
   ["포케", 450, 45, 25, 18],
   ["사탕", 20, 5, 0, 0],
   ["토마토", 5, 1, 0.2, 0],
