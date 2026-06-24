@@ -234,33 +234,34 @@ migrateSkip.addEventListener("click", () => {
 migrateImport.addEventListener("click", async () => {
   if (!pendingMigrationData || !currentUser) return;
   migrateModal.hidden = true;
-  const batch = firestoreDb.batch();
-  pendingMigrationData.logs.forEach((l) => {
-    batch.set(logsCollection().doc(String(l.id)), {
-      id: l.id,
-      type: l.type,
-      date: l.date,
-      time: l.time ?? null,
-      text: l.text,
-      kcal: l.kcal ?? null,
-      carb: l.carb ?? null,
-      protein: l.protein ?? null,
-      fat: l.fat ?? null,
-      createdAt: l.createdAt || new Date().toISOString(),
-    });
-  });
-  pendingMigrationData.dict.forEach((d) => {
-    batch.set(dictCollection().doc(dictKey(d.type, d.text)), {
-      type: d.type,
-      text: d.text,
-      kcal: d.kcal ?? null,
-      carb: d.carb ?? null,
-      protein: d.protein ?? null,
-      fat: d.fat ?? null,
-    });
-  });
   const count = pendingMigrationData.logs.length;
   try {
+    const batch = firestoreDb.batch();
+    pendingMigrationData.logs.forEach((l) => {
+      batch.set(logsCollection().doc(String(l.id ?? Date.now() + Math.random())), {
+        id: l.id ?? Date.now(),
+        type: l.type ?? "diet",
+        date: l.date ?? toDateKey(new Date()),
+        time: l.time ?? null,
+        text: l.text ?? "",
+        kcal: l.kcal ?? null,
+        carb: l.carb ?? null,
+        protein: l.protein ?? null,
+        fat: l.fat ?? null,
+        createdAt: l.createdAt || new Date().toISOString(),
+      });
+    });
+    pendingMigrationData.dict.forEach((d) => {
+      if (!d.text) return;
+      batch.set(dictCollection().doc(dictKey(d.type ?? "diet", d.text)), {
+        type: d.type ?? "diet",
+        text: d.text,
+        kcal: d.kcal ?? null,
+        carb: d.carb ?? null,
+        protein: d.protein ?? null,
+        fat: d.fat ?? null,
+      });
+    });
     await batch.commit();
     localStorage.setItem(MIGRATION_DISMISSED_KEY, "1");
     showToast(`${count}개 항목을 가져왔습니다.`);
@@ -271,7 +272,8 @@ migrateImport.addEventListener("click", async () => {
 });
 
 function dictKey(type, text) {
-  return `${type}:::${text.trim().toLowerCase()}`;
+  const safeText = text.trim().toLowerCase().replace(/\//g, "_");
+  return `${type}:::${safeText}`;
 }
 
 // undefined: 한 번도 입력된 적 없는 항목 / null: 입력 자체가 없었던 항목
@@ -994,7 +996,10 @@ function exportBackup() {
 }
 
 function importFromJSON(jsonText) {
-  if (!currentUser) return;
+  if (!currentUser) {
+    showToast("로그인 상태를 확인해주세요.");
+    return;
+  }
   let imported;
   try {
     imported = JSON.parse(jsonText);
@@ -1006,41 +1011,49 @@ function importFromJSON(jsonText) {
     showToast("올바른 백업 파일 형식이 아닙니다.");
     return;
   }
+  if (imported.length === 0) {
+    showToast("파일에 항목이 없습니다.");
+    return;
+  }
 
-  const batch = firestoreDb.batch();
-  imported.forEach((l) => {
-    batch.set(logsCollection().doc(String(l.id)), {
-      id: l.id,
-      type: l.type,
-      date: l.date,
-      time: l.time ?? null,
-      text: l.text,
-      kcal: l.kcal ?? null,
-      carb: l.carb ?? null,
-      protein: l.protein ?? null,
-      fat: l.fat ?? null,
-      createdAt: l.createdAt || new Date().toISOString(),
-    });
-    if (l.kcal != null) {
-      batch.set(dictCollection().doc(dictKey(l.type, l.text)), {
-        type: l.type,
-        text: l.text.trim().toLowerCase(),
-        kcal: l.kcal,
+  try {
+    const batch = firestoreDb.batch();
+    imported.forEach((l) => {
+      batch.set(logsCollection().doc(String(l.id ?? Date.now() + Math.random())), {
+        id: l.id ?? Date.now(),
+        type: l.type ?? "diet",
+        date: l.date ?? toDateKey(new Date()),
+        time: l.time ?? null,
+        text: l.text ?? "",
+        kcal: l.kcal ?? null,
         carb: l.carb ?? null,
         protein: l.protein ?? null,
         fat: l.fat ?? null,
+        createdAt: l.createdAt || new Date().toISOString(),
       });
-    }
-  });
-
-  batch
-    .commit()
-    .then(() => {
-      showToast(`${imported.length}개 항목을 가져왔습니다.`);
-    })
-    .catch((err) => {
-      showToast(`가져오기 실패: ${err.message}`);
+      if (l.kcal != null && l.text) {
+        batch.set(dictCollection().doc(dictKey(l.type ?? "diet", l.text)), {
+          type: l.type ?? "diet",
+          text: l.text.trim().toLowerCase(),
+          kcal: l.kcal,
+          carb: l.carb ?? null,
+          protein: l.protein ?? null,
+          fat: l.fat ?? null,
+        });
+      }
     });
+
+    batch
+      .commit()
+      .then(() => {
+        showToast(`${imported.length}개 항목을 가져왔습니다.`);
+      })
+      .catch((err) => {
+        showToast(`가져오기 실패: ${err.message}`);
+      });
+  } catch (err) {
+    showToast(`가져오기 실패: ${err.message}`);
+  }
 }
 
 /* ---------- 이벤트 ---------- */
