@@ -33,6 +33,9 @@ const settingsBmrInput = document.getElementById("settings-bmr-input");
 const settingsAgeInput = document.getElementById("settings-age-input");
 const settingsGenderInput = document.getElementById("settings-gender-input");
 const settingsGoalInput = document.getElementById("settings-goal-input");
+const settingsCarbInput = document.getElementById("settings-carb-input");
+const settingsProteinInput = document.getElementById("settings-protein-input");
+const settingsFatInput = document.getElementById("settings-fat-input");
 const settingsModalCancel = document.getElementById("settings-modal-cancel");
 const settingsModalSave = document.getElementById("settings-modal-save");
 
@@ -43,6 +46,9 @@ const BMR_KEY = "healthLogBMR";
 const AGE_KEY = "healthLogAge";
 const GENDER_KEY = "healthLogGender";
 const GOAL_KEY = "healthLogGoal";
+const CARB_TARGET_KEY = "healthLogCarbTarget";
+const PROTEIN_TARGET_KEY = "healthLogProteinTarget";
+const FAT_TARGET_KEY = "healthLogFatTarget";
 
 let toastTimer = null;
 function showToast(message, duration = 3000) {
@@ -556,15 +562,21 @@ function getSettings() {
   const age = parseFloat(localStorage.getItem(AGE_KEY));
   const gender = localStorage.getItem(GENDER_KEY) || null;
   const goal = localStorage.getItem(GOAL_KEY) || "maintain";
+  const carbTarget = parseFloat(localStorage.getItem(CARB_TARGET_KEY));
+  const proteinTarget = parseFloat(localStorage.getItem(PROTEIN_TARGET_KEY));
+  const fatTarget = parseFloat(localStorage.getItem(FAT_TARGET_KEY));
   return {
     bmr: Number.isFinite(bmr) ? bmr : null,
     age: Number.isFinite(age) ? age : null,
     gender,
     goal,
+    carbTarget: Number.isFinite(carbTarget) ? carbTarget : null,
+    proteinTarget: Number.isFinite(proteinTarget) ? proteinTarget : null,
+    fatTarget: Number.isFinite(fatTarget) ? fatTarget : null,
   };
 }
 
-function saveSettings(bmr, age, gender, goal) {
+function saveSettings(bmr, age, gender, goal, carbTarget, proteinTarget, fatTarget) {
   if (bmr === null) localStorage.removeItem(BMR_KEY);
   else localStorage.setItem(BMR_KEY, String(bmr));
   if (age === null) localStorage.removeItem(AGE_KEY);
@@ -572,14 +584,24 @@ function saveSettings(bmr, age, gender, goal) {
   if (!gender) localStorage.removeItem(GENDER_KEY);
   else localStorage.setItem(GENDER_KEY, gender);
   localStorage.setItem(GOAL_KEY, goal || "maintain");
+  if (carbTarget === null) localStorage.removeItem(CARB_TARGET_KEY);
+  else localStorage.setItem(CARB_TARGET_KEY, String(carbTarget));
+  if (proteinTarget === null) localStorage.removeItem(PROTEIN_TARGET_KEY);
+  else localStorage.setItem(PROTEIN_TARGET_KEY, String(proteinTarget));
+  if (fatTarget === null) localStorage.removeItem(FAT_TARGET_KEY);
+  else localStorage.setItem(FAT_TARGET_KEY, String(fatTarget));
 }
 
 settingsBtn.addEventListener("click", () => {
-  const { bmr, age, gender, goal } = getSettings();
+  const { bmr, age, gender, goal, carbTarget, proteinTarget, fatTarget } =
+    getSettings();
   settingsBmrInput.value = bmr ?? "";
   settingsAgeInput.value = age ?? "";
   settingsGenderInput.value = gender || "";
   settingsGoalInput.value = goal;
+  settingsCarbInput.value = carbTarget ?? "";
+  settingsProteinInput.value = proteinTarget ?? "";
+  settingsFatInput.value = fatTarget ?? "";
   settingsModal.hidden = false;
 });
 
@@ -592,7 +614,10 @@ settingsModalSave.addEventListener("click", () => {
     positiveOrNull(settingsBmrInput.value),
     positiveOrNull(settingsAgeInput.value),
     settingsGenderInput.value || null,
-    settingsGoalInput.value
+    settingsGoalInput.value,
+    positiveOrNull(settingsCarbInput.value),
+    positiveOrNull(settingsProteinInput.value),
+    positiveOrNull(settingsFatInput.value)
   );
   settingsModal.hidden = true;
   render();
@@ -776,7 +801,7 @@ function render() {
     adviceLine.className = `day-total-advice${advice && advice.ok ? " ok" : ""}`;
     adviceLine.textContent = advice
       ? advice.message
-      : "⚙ 설정에서 기초대사량을 입력하면 부족한 영양소를 알려드려요.";
+      : "⚙ 설정에서 기초대사량이나 탄단지 목표를 입력하면 부족한 영양소를 알려드려요.";
     dayTotal.appendChild(adviceLine);
   } else {
     const advice = computeExerciseAdvice(selectedDate);
@@ -812,31 +837,37 @@ function getMacroRatios({ age, gender, goal }) {
 
 // 기초대사량(+그날 운동 소모량) 대비 식단 섭취량을 비교해 가장 부족한 영양소를 안내
 function computeDietAdvice(dateKey, intake) {
-  const { bmr, age, gender, goal } = getSettings();
-  if (!bmr) return null;
+  const { bmr, age, gender, goal, carbTarget, proteinTarget, fatTarget } =
+    getSettings();
+  const hasManualTarget = carbTarget || proteinTarget || fatTarget;
+  if (!bmr && !hasManualTarget) return null;
 
   const exerciseKcal = logs
     .filter((l) => l.type === "exercise" && l.date === dateKey)
     .reduce((sum, l) => sum + (l.kcal || 0), 0);
 
-  const budget = bmr + exerciseKcal;
+  const budget = bmr ? bmr + exerciseKcal : null;
   const ratio = getMacroRatios({ age, gender, goal });
 
+  // 직접 설정한 g 목표가 있으면 그걸 쓰고, 없으면 기초대사량 기반으로 계산
   const targets = {
-    carb: (budget * ratio.carb) / 4,
-    protein: (budget * ratio.protein) / 4,
-    fat: (budget * ratio.fat) / 9,
+    carb: carbTarget ?? (budget != null ? (budget * ratio.carb) / 4 : null),
+    protein:
+      proteinTarget ?? (budget != null ? (budget * ratio.protein) / 4 : null),
+    fat: fatTarget ?? (budget != null ? (budget * ratio.fat) / 9 : null),
   };
 
-  const pct = {
-    carb: targets.carb > 0 ? intake.carb / targets.carb : 1,
-    protein: targets.protein > 0 ? intake.protein / targets.protein : 1,
-    fat: targets.fat > 0 ? intake.fat / targets.fat : 1,
-  };
+  const pct = {};
+  Object.keys(targets).forEach((key) => {
+    if (targets[key] != null && targets[key] > 0) {
+      pct[key] = intake[key] / targets[key];
+    }
+  });
+  if (Object.keys(pct).length === 0) return null;
 
   const macroLabel = { carb: "탄수화물", protein: "단백질", fat: "지방" };
   const lowest = Object.keys(pct).reduce((a, b) => (pct[a] <= pct[b] ? a : b));
-  const kcalDiff = Math.round(intake.kcal - budget);
+  const kcalDiff = budget != null ? Math.round(intake.kcal - budget) : null;
 
   let message;
   let ok = true;
@@ -845,6 +876,8 @@ function computeDietAdvice(dateKey, intake) {
       intake[lowest]
     )}g / ${Math.round(targets[lowest])}g 목표)`;
     ok = false;
+  } else if (kcalDiff === null) {
+    message = "오늘 영양소 목표를 잘 채우셨어요";
   } else if (goal === "lose" && kcalDiff > 0) {
     message = `다이어트 중인데 오늘 기준치보다 ${kcalDiff.toLocaleString()}kcal 더 드셨어요`;
     ok = false;

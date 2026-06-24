@@ -430,6 +430,13 @@ body {
   word-break: break-word;
 }
 
+.modal-sub-label {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
 .modal-box input[type="number"],
 .modal-box select {
   width: 100%;

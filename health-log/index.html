@@ -84,6 +84,12 @@
         <option value="lose">목표: 체중감량(다이어트)</option>
         <option value="gain">목표: 근육증가(벌크업)</option>
       </select>
+      <p class="modal-sub-label">하루 탄단지 목표(g, 선택) — 비워두면 위 정보로 자동 계산</p>
+      <div class="modal-macros">
+        <input type="number" id="settings-carb-input" placeholder="탄수화물(g)" inputmode="numeric" min="0" />
+        <input type="number" id="settings-protein-input" placeholder="단백질(g)" inputmode="numeric" min="0" />
+        <input type="number" id="settings-fat-input" placeholder="지방(g)" inputmode="numeric" min="0" />
+      </div>
       <div class="modal-actions">
         <button type="button" id="settings-modal-cancel">취소</button>
         <button type="button" id="settings-modal-save">저장</button>
