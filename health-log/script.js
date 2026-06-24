@@ -31,6 +31,8 @@ const settingsBtn = document.getElementById("settings-btn");
 const settingsModal = document.getElementById("settings-modal");
 const settingsBmrInput = document.getElementById("settings-bmr-input");
 const settingsAgeInput = document.getElementById("settings-age-input");
+const settingsGenderInput = document.getElementById("settings-gender-input");
+const settingsGoalInput = document.getElementById("settings-goal-input");
 const settingsModalCancel = document.getElementById("settings-modal-cancel");
 const settingsModalSave = document.getElementById("settings-modal-save");
 
@@ -39,6 +41,8 @@ const RECENT_EXERCISE_KEY = "healthLogRecentExercise";
 const MAX_RECENT = 5;
 const BMR_KEY = "healthLogBMR";
 const AGE_KEY = "healthLogAge";
+const GENDER_KEY = "healthLogGender";
+const GOAL_KEY = "healthLogGoal";
 
 let toastTimer = null;
 function showToast(message, duration = 3000) {
@@ -546,27 +550,36 @@ function askNutrition(text, type) {
   });
 }
 
-/* ---------- 기초대사량/나이 설정 ---------- */
+/* ---------- 기초대사량/나이/성별/목표 설정 ---------- */
 function getSettings() {
   const bmr = parseFloat(localStorage.getItem(BMR_KEY));
   const age = parseFloat(localStorage.getItem(AGE_KEY));
+  const gender = localStorage.getItem(GENDER_KEY) || null;
+  const goal = localStorage.getItem(GOAL_KEY) || "maintain";
   return {
     bmr: Number.isFinite(bmr) ? bmr : null,
     age: Number.isFinite(age) ? age : null,
+    gender,
+    goal,
   };
 }
 
-function saveSettings(bmr, age) {
+function saveSettings(bmr, age, gender, goal) {
   if (bmr === null) localStorage.removeItem(BMR_KEY);
   else localStorage.setItem(BMR_KEY, String(bmr));
   if (age === null) localStorage.removeItem(AGE_KEY);
   else localStorage.setItem(AGE_KEY, String(age));
+  if (!gender) localStorage.removeItem(GENDER_KEY);
+  else localStorage.setItem(GENDER_KEY, gender);
+  localStorage.setItem(GOAL_KEY, goal || "maintain");
 }
 
 settingsBtn.addEventListener("click", () => {
-  const { bmr, age } = getSettings();
+  const { bmr, age, gender, goal } = getSettings();
   settingsBmrInput.value = bmr ?? "";
   settingsAgeInput.value = age ?? "";
+  settingsGenderInput.value = gender || "";
+  settingsGoalInput.value = goal;
   settingsModal.hidden = false;
 });
 
@@ -577,7 +590,9 @@ settingsModalCancel.addEventListener("click", () => {
 settingsModalSave.addEventListener("click", () => {
   saveSettings(
     positiveOrNull(settingsBmrInput.value),
-    positiveOrNull(settingsAgeInput.value)
+    positiveOrNull(settingsAgeInput.value),
+    settingsGenderInput.value || null,
+    settingsGoalInput.value
   );
   settingsModal.hidden = true;
   render();
@@ -763,12 +778,41 @@ function render() {
       ? advice.message
       : "⚙ 설정에서 기초대사량을 입력하면 부족한 영양소를 알려드려요.";
     dayTotal.appendChild(adviceLine);
+  } else {
+    const advice = computeExerciseAdvice(selectedDate);
+    const adviceLine = document.createElement("div");
+    adviceLine.className = `day-total-advice${advice.ok ? " ok" : ""}`;
+    adviceLine.textContent = advice.message;
+    dayTotal.appendChild(adviceLine);
   }
+}
+
+// 목표(다이어트/유지/벌크업)·나이·성별을 반영한 탄단지 목표치를 계산
+function getMacroRatios({ age, gender, goal }) {
+  const goalRatios = {
+    lose: { protein: 0.35, fat: 0.3, carb: 0.35 },
+    gain: { protein: 0.3, fat: 0.25, carb: 0.45 },
+    maintain: { protein: 0.2, fat: 0.3, carb: 0.5 },
+  };
+  const base = goalRatios[goal] || goalRatios.maintain;
+
+  let proteinRatio = base.protein;
+  if (age != null && age >= 50) proteinRatio += 0.05;
+  if (gender === "male") proteinRatio += 0.02;
+  proteinRatio = Math.min(proteinRatio, 0.5);
+
+  const remaining = 1 - proteinRatio;
+  const baseRemaining = base.carb + base.fat;
+  const carbRatio =
+    baseRemaining > 0 ? (base.carb / baseRemaining) * remaining : remaining * 0.6;
+  const fatRatio = remaining - carbRatio;
+
+  return { carb: carbRatio, protein: proteinRatio, fat: fatRatio };
 }
 
 // 기초대사량(+그날 운동 소모량) 대비 식단 섭취량을 비교해 가장 부족한 영양소를 안내
 function computeDietAdvice(dateKey, intake) {
-  const { bmr, age } = getSettings();
+  const { bmr, age, gender, goal } = getSettings();
   if (!bmr) return null;
 
   const exerciseKcal = logs
@@ -776,14 +820,12 @@ function computeDietAdvice(dateKey, intake) {
     .reduce((sum, l) => sum + (l.kcal || 0), 0);
 
   const budget = bmr + exerciseKcal;
-  const proteinRatio = age != null && age >= 50 ? 0.25 : 0.2;
-  const fatRatio = 0.3;
-  const carbRatio = 1 - proteinRatio - fatRatio;
+  const ratio = getMacroRatios({ age, gender, goal });
 
   const targets = {
-    carb: (budget * carbRatio) / 4,
-    protein: (budget * proteinRatio) / 4,
-    fat: (budget * fatRatio) / 9,
+    carb: (budget * ratio.carb) / 4,
+    protein: (budget * ratio.protein) / 4,
+    fat: (budget * ratio.fat) / 9,
   };
 
   const pct = {
@@ -803,17 +845,99 @@ function computeDietAdvice(dateKey, intake) {
       intake[lowest]
     )}g / ${Math.round(targets[lowest])}g 목표)`;
     ok = false;
-  } else if (kcalDiff > 200) {
+  } else if (goal === "lose" && kcalDiff > 0) {
+    message = `다이어트 중인데 오늘 기준치보다 ${kcalDiff.toLocaleString()}kcal 더 드셨어요`;
+    ok = false;
+  } else if (goal === "lose" && kcalDiff < -800) {
+    message = "오늘 너무 적게 드셨어요. 무리한 감량은 건강에 안 좋아요";
+    ok = false;
+  } else if (goal === "gain" && kcalDiff < 0) {
+    message = `근육량을 늘리려면 칼로리가 더 필요해요 (오늘 ${Math.abs(
+      kcalDiff
+    ).toLocaleString()}kcal 부족)`;
+    ok = false;
+  } else if (goal !== "lose" && goal !== "gain" && kcalDiff > 200) {
     message = `오늘 기준치보다 ${kcalDiff.toLocaleString()}kcal 더 드셨어요`;
     ok = false;
-  } else if (kcalDiff < -500) {
+  } else if (goal !== "lose" && goal !== "gain" && kcalDiff < -500) {
     message = `오늘 기준치보다 ${Math.abs(kcalDiff).toLocaleString()}kcal 덜 드셨어요`;
     ok = false;
   } else {
-    message = "오늘 영양소 균형이 양호해요";
+    message =
+      goal === "lose"
+        ? "오늘 다이어트 식단 잘 지키셨어요 👍"
+        : goal === "gain"
+        ? "오늘 근육 늘리기 식단 잘 챙기셨어요 💪"
+        : "오늘 영양소 균형이 양호해요";
   }
 
   return { kcalDiff, message, ok };
+}
+
+// 오늘 운동 기록을 부위별 키워드로 분류해 코멘트를 만듦
+const EXERCISE_CATEGORIES = [
+  { label: "하체", keywords: ["스쿼트", "레그", "런지", "카프", "하체", "다리"] },
+  { label: "등", keywords: ["등", "풀업", "데드리프트", "로우", "랫풀"] },
+  { label: "가슴", keywords: ["가슴", "벤치", "푸시업", "푸쉬업", "체스트"] },
+  { label: "어깨", keywords: ["어깨", "숄더", "레터럴"] },
+  { label: "팔", keywords: ["아령", "이두", "삼두", "컬", "덤벨", "팔"] },
+  { label: "복근", keywords: ["복근", "플랭크", "윗몸일으키기", "크런치"] },
+  {
+    label: "유산소",
+    keywords: [
+      "계단",
+      "런닝머신",
+      "트레드밀",
+      "걷기",
+      "달리기",
+      "자전거",
+      "사이클",
+      "수영",
+      "줄넘기",
+    ],
+  },
+];
+
+const exercisePhrasing = {
+  하체: "오늘 하체 운동을 많이 하셨군요! 🦵",
+  등: "오늘 등 운동에 집중하셨네요!",
+  가슴: "오늘 가슴 운동 빡세게 하셨네요! 💪",
+  어깨: "오늘 어깨 운동 하셨네요!",
+  팔: "오늘 팔 운동 하셨네요!",
+  복근: "오늘 코어(복근) 운동 하셨네요!",
+  유산소: "오늘은 유산소 위주로 움직이셨네요! 🏃",
+};
+
+function computeExerciseAdvice(dateKey) {
+  const todayLogs = logs.filter(
+    (l) => l.type === "exercise" && l.date === dateKey
+  );
+  if (todayLogs.length === 0) {
+    return { message: "오늘은 아직 기록된 운동이 없어요.", ok: false };
+  }
+
+  const counts = {};
+  todayLogs.forEach((log) => {
+    EXERCISE_CATEGORIES.forEach(({ label, keywords }) => {
+      if (keywords.some((kw) => log.text.includes(kw))) {
+        counts[label] = (counts[label] || 0) + 1;
+      }
+    });
+  });
+
+  const labels = Object.keys(counts);
+  if (labels.length === 0) {
+    return { message: "오늘도 운동하셨네요! 잘하고 있어요 💪", ok: true };
+  }
+
+  const maxCount = Math.max(...labels.map((l) => counts[l]));
+  const topLabels = labels.filter((l) => counts[l] === maxCount);
+
+  if (topLabels.length >= 3) {
+    return { message: "오늘 여러 부위를 골고루 운동하셨네요! 👏", ok: true };
+  }
+
+  return { message: topLabels.map((l) => exercisePhrasing[l]).join(" "), ok: true };
 }
 
 /* ---------- 백업 / 가져오기 ---------- */

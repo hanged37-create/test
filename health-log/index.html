@@ -71,9 +71,19 @@
 
   <div id="settings-modal" class="modal-overlay" hidden>
     <div class="modal-box">
-      <p>하루 기준치를 입력하면 부족한 영양소를 알려드려요.</p>
+      <p>입력하시면 식단/운동을 분석해서 부족한 점을 알려드려요.</p>
       <input type="number" id="settings-bmr-input" placeholder="기초대사량 (kcal)" inputmode="numeric" min="0" />
       <input type="number" id="settings-age-input" placeholder="나이" inputmode="numeric" min="0" />
+      <select id="settings-gender-input">
+        <option value="">성별 선택</option>
+        <option value="male">남성</option>
+        <option value="female">여성</option>
+      </select>
+      <select id="settings-goal-input">
+        <option value="maintain">목표: 유지</option>
+        <option value="lose">목표: 체중감량(다이어트)</option>
+        <option value="gain">목표: 근육증가(벌크업)</option>
+      </select>
       <div class="modal-actions">
         <button type="button" id="settings-modal-cancel">취소</button>
         <button type="button" id="settings-modal-save">저장</button>
