@@ -240,29 +240,33 @@ migrateImport.addEventListener("click", async () => {
       id: l.id,
       type: l.type,
       date: l.date,
-      time: l.time,
+      time: l.time ?? null,
       text: l.text,
       kcal: l.kcal ?? null,
       carb: l.carb ?? null,
       protein: l.protein ?? null,
       fat: l.fat ?? null,
-      createdAt: l.createdAt,
+      createdAt: l.createdAt || new Date().toISOString(),
     });
   });
   pendingMigrationData.dict.forEach((d) => {
     batch.set(dictCollection().doc(dictKey(d.type, d.text)), {
       type: d.type,
       text: d.text,
-      kcal: d.kcal,
+      kcal: d.kcal ?? null,
       carb: d.carb ?? null,
       protein: d.protein ?? null,
       fat: d.fat ?? null,
     });
   });
   const count = pendingMigrationData.logs.length;
-  await batch.commit();
-  localStorage.setItem(MIGRATION_DISMISSED_KEY, "1");
-  showToast(`${count}개 항목을 가져왔습니다.`);
+  try {
+    await batch.commit();
+    localStorage.setItem(MIGRATION_DISMISSED_KEY, "1");
+    showToast(`${count}개 항목을 가져왔습니다.`);
+  } catch (err) {
+    showToast(`가져오기 실패: ${err.message}`);
+  }
   pendingMigrationData = null;
 });
 
@@ -1009,13 +1013,13 @@ function importFromJSON(jsonText) {
       id: l.id,
       type: l.type,
       date: l.date,
-      time: l.time,
+      time: l.time ?? null,
       text: l.text,
       kcal: l.kcal ?? null,
       carb: l.carb ?? null,
       protein: l.protein ?? null,
       fat: l.fat ?? null,
-      createdAt: l.createdAt,
+      createdAt: l.createdAt || new Date().toISOString(),
     });
     if (l.kcal != null) {
       batch.set(dictCollection().doc(dictKey(l.type, l.text)), {
@@ -1029,9 +1033,14 @@ function importFromJSON(jsonText) {
     }
   });
 
-  batch.commit().then(() => {
-    showToast(`${imported.length}개 항목을 가져왔습니다.`);
-  });
+  batch
+    .commit()
+    .then(() => {
+      showToast(`${imported.length}개 항목을 가져왔습니다.`);
+    })
+    .catch((err) => {
+      showToast(`가져오기 실패: ${err.message}`);
+    });
 }
 
 /* ---------- 이벤트 ---------- */
