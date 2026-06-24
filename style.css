@@ -202,6 +202,22 @@ body {
   color: #2d2d3a;
 }
 
+.calendar-tooltip-item.completed-item .calendar-tooltip-text,
+.calendar-tooltip-item.completed-item .calendar-tooltip-client {
+  text-decoration: line-through;
+  color: #9ca3af;
+}
+
+.calendar-tooltip-done {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #16a34a;
+  background: #f0fdf4;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
 h1 {
   text-align: center;
   color: #2d2d3a;
@@ -227,6 +243,7 @@ h1 {
 #todo-input,
 .todo-input {
   flex: 1;
+  width: 100%;
   padding: 10px 14px;
   border: 1px solid #d9dbe3;
   border-radius: 8px;
@@ -251,6 +268,7 @@ h1 {
 
 .client-input {
   flex: 1;
+  width: 100%;
   padding: 10px 14px;
   border: 1px solid #d9dbe3;
   border-radius: 8px;
@@ -290,19 +308,12 @@ h1 {
   flex-wrap: wrap;
 }
 
-.recurring-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  font-size: 0.82rem;
-  color: #555;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.recurring-label input[type="checkbox"] {
-  accent-color: #6366f1;
+#recurring-select {
+  padding: 10px 8px;
+  border: 1px solid #d9dbe3;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #fff;
   cursor: pointer;
 }
 
@@ -728,7 +739,8 @@ h1 {
 }
 
 #export-btn,
-#import-btn {
+#import-btn,
+#backup-btn {
   background: none;
   border: 1px solid #d9dbe3;
   color: #555;
@@ -740,8 +752,51 @@ h1 {
 }
 
 #export-btn:hover,
-#import-btn:hover {
+#import-btn:hover,
+#backup-btn:hover {
   background: #f5f5fa;
+}
+
+.backup-reminder-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+
+.backup-reminder-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+#backup-reminder-backup-btn {
+  background: #f59e0b;
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+#backup-reminder-dismiss-btn {
+  background: none;
+  border: none;
+  color: #92400e;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.8rem;
 }
 
 #clear-completed {
@@ -766,6 +821,67 @@ h1 {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 토스트 알림 */
+.toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2d2d3a;
+  color: #fff;
+  padding: 12px 22px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  z-index: 2000;
+  max-width: 90vw;
+  text-align: center;
+  animation: toastIn 0.2s ease-out;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* 자동완성 드롭다운 */
+.autocomplete-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.autocomplete-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #d9dbe3;
+  border-radius: 8px;
+  margin-top: 4px;
+  list-style: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  overflow: hidden;
+}
+
+.autocomplete-list li {
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  color: #2d2d3a;
+  cursor: pointer;
+}
+
+.autocomplete-list li:hover {
+  background: #f3f3fb;
 }
 
 /* 스크롤바 */

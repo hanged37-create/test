@@ -12,23 +12,37 @@
   <div class="app">
     <h1>To-Do List</h1>
 
+    <div id="backup-reminder-bar" class="backup-reminder-bar" hidden>
+      <span id="backup-reminder-label"></span>
+      <div class="backup-reminder-actions">
+        <button type="button" id="backup-reminder-backup-btn">지금 백업</button>
+        <button type="button" id="backup-reminder-dismiss-btn">나중에</button>
+      </div>
+    </div>
+
     <form id="todo-form" class="todo-form">
-      <input
-        type="text"
-        id="todo-input"
-        class="todo-input"
-        placeholder="할 일을 입력하세요..."
-        autocomplete="off"
-        required
-      />
-      <div class="todo-form-row">
+      <div class="autocomplete-wrapper">
         <input
           type="text"
-          id="client-input"
-          class="client-input"
-          placeholder="거래처명"
+          id="todo-input"
+          class="todo-input"
+          placeholder="할 일을 입력하세요..."
           autocomplete="off"
+          required
         />
+        <ul class="autocomplete-list" id="todo-input-suggestions" hidden></ul>
+      </div>
+      <div class="todo-form-row">
+        <div class="autocomplete-wrapper">
+          <input
+            type="text"
+            id="client-input"
+            class="client-input"
+            placeholder="거래처명"
+            autocomplete="off"
+          />
+          <ul class="autocomplete-list" id="client-input-suggestions" hidden></ul>
+        </div>
         <select id="category-select">
           <option value="outsourcing" selected>아웃소싱</option>
           <option value="education">교육 및 개발</option>
@@ -49,10 +63,11 @@
           <option value="low">낮음</option>
         </select>
         <input type="date" id="due-date-input" title="마감일" />
-        <label class="recurring-label" title="매월 같은 날짜로 반복 생성">
-          <input type="checkbox" id="recurring-checkbox" />
-          매월 반복
-        </label>
+        <select id="recurring-select" title="반복 설정">
+          <option value="" selected>반복 안함</option>
+          <option value="weekly">매주 반복</option>
+          <option value="monthly">매월 반복</option>
+        </select>
         <button type="submit">추가</button>
       </div>
     </form>
@@ -102,6 +117,7 @@
       <div class="footer-actions">
         <button id="import-btn" type="button" title="JSON 백업 파일에서 항목을 가져옵니다">데이터 가져오기</button>
         <input type="file" id="import-file-input" accept="application/json" hidden />
+        <button id="backup-btn" type="button" title="전체 데이터를 JSON 파일로 백업합니다">전체 백업</button>
         <button id="export-btn" type="button" title="캘린더에 표시된 달 기준으로 내보냅니다">엑셀 내보내기</button>
         <button id="clear-completed">완료된 항목 삭제</button>
       </div>
@@ -123,6 +139,8 @@
 
   <div id="calendar-tooltip" class="calendar-tooltip"></div>
   </div>
+
+  <div id="toast" class="toast" hidden></div>
 
   <script src="vendor/sql-wasm.js"></script>
   <script src="script.js"></script>

@@ -23,10 +23,75 @@ body {
   max-width: 480px;
   height: 100%;
   background: #ffffff;
-  display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.2);
+}
+
+.app:not([hidden]) {
+  display: flex;
+}
+
+/* 로그인 화면 */
+.auth-gate {
+  width: 100%;
+  max-width: 480px;
+  height: 100%;
+  background: #ffffff;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.2);
+  padding: 24px;
+}
+
+.auth-gate:not([hidden]) {
+  display: flex;
+}
+
+.auth-box {
+  text-align: center;
+}
+
+.auth-box h1 {
+  font-size: 1.3rem;
+  color: #1f2937;
+  margin-bottom: 10px;
+}
+
+.auth-box p {
+  font-size: 0.88rem;
+  color: #6b7280;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+#google-signin-btn {
+  padding: 12px 24px;
+  border: 1px solid #d9dbe3;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#google-signin-btn:hover {
+  background: #f5f5fa;
+}
+
+.auth-status {
+  margin-top: 14px;
+  font-size: 0.8rem;
+  color: #ef4444;
+}
+
+.user-email {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  text-align: right;
+  padding: 0 16px 6px;
+  flex-shrink: 0;
 }
 
 .app-header {

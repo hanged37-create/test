@@ -9,7 +9,7 @@ const clientInput = document.getElementById("client-input");
 const categorySelect = document.getElementById("category-select");
 const prioritySelect = document.getElementById("priority-select");
 const dueDateInput = document.getElementById("due-date-input");
-const recurringCheckbox = document.getElementById("recurring-checkbox");
+const recurringSelect = document.getElementById("recurring-select");
 const todoList = document.getElementById("todo-list");
 const filterButtons = document.getElementById("filter-buttons");
 const categoryFilterButtons = document.getElementById(
@@ -24,6 +24,93 @@ const dateFilterClearBtn = document.getElementById("date-filter-clear");
 const exportBtn = document.getElementById("export-btn");
 const importBtn = document.getElementById("import-btn");
 const importFileInput = document.getElementById("import-file-input");
+const backupBtn = document.getElementById("backup-btn");
+const backupReminderBar = document.getElementById("backup-reminder-bar");
+const backupReminderLabel = document.getElementById("backup-reminder-label");
+const backupReminderBackupBtn = document.getElementById(
+  "backup-reminder-backup-btn"
+);
+const backupReminderDismissBtn = document.getElementById(
+  "backup-reminder-dismiss-btn"
+);
+const toast = document.getElementById("toast");
+const todoInputSuggestions = document.getElementById("todo-input-suggestions");
+const clientInputSuggestions = document.getElementById(
+  "client-input-suggestions"
+);
+
+const LAST_BACKUP_KEY = "lastBackupAt";
+const BACKUP_REMINDER_DAYS = 7;
+const RECENT_TASKS_KEY = "recentTasks";
+const RECENT_CLIENTS_KEY = "recentClients";
+const MAX_RECENT = 5;
+
+let toastTimer = null;
+function showToast(message, duration = 4000) {
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.hidden = true;
+  }, duration);
+}
+
+/* ---------- 최근 입력값(자동완성) ---------- */
+function getRecentList(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) || [];
+  } catch {
+    return [];
+  }
+}
+
+// 가장 최근에 입력한 값이 맨 앞(=맨 위)에 오도록 기록, 중복 제거, 최대 5개 유지
+function addToRecentList(key, value) {
+  if (!value) return;
+  let list = getRecentList(key).filter((v) => v !== value);
+  list.unshift(value);
+  list = list.slice(0, MAX_RECENT);
+  localStorage.setItem(key, JSON.stringify(list));
+}
+
+function setupAutocomplete(inputEl, listEl, storageKey) {
+  function renderSuggestions() {
+    const typed = inputEl.value.trim().toLowerCase();
+    const recent = getRecentList(storageKey);
+    const matches = typed
+      ? recent.filter((v) => v.toLowerCase().includes(typed))
+      : recent;
+
+    if (matches.length === 0) {
+      listEl.hidden = true;
+      return;
+    }
+
+    listEl.innerHTML = "";
+    matches.forEach((value) => {
+      const li = document.createElement("li");
+      li.textContent = value;
+      li.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        inputEl.value = value;
+        listEl.hidden = true;
+      });
+      listEl.appendChild(li);
+    });
+    listEl.hidden = false;
+  }
+
+  inputEl.addEventListener("focus", renderSuggestions);
+  inputEl.addEventListener("input", renderSuggestions);
+  inputEl.addEventListener("blur", () => {
+    setTimeout(() => {
+      listEl.hidden = true;
+    }, 150);
+  });
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") listEl.hidden = true;
+  });
+}
 
 let todos = [];
 let db = null;
@@ -93,7 +180,25 @@ async function initDatabase() {
   }
 
   refreshTodosFromDb();
+  rolloverOverdueDueDates();
   render();
+}
+
+// 마감일이 지났는데 아직 완료되지 않은 항목은 마감일을 오늘로 자동으로 미룸
+// (매일 못 끝내면 계속 다음날로 넘어가는 효과)
+function rolloverOverdueDueDates() {
+  if (!db) return;
+  const todayKey = toDateKey(new Date());
+  const overdue = todos.filter(
+    (t) => !t.completed && t.dueDate && t.dueDate < todayKey
+  );
+  if (overdue.length === 0) return;
+
+  overdue.forEach((t) => {
+    db.run("UPDATE todos SET dueDate = ? WHERE id = ?", [todayKey, t.id]);
+  });
+  persistDb();
+  refreshTodosFromDb();
 }
 
 // 이전 버전(localStorage)에 저장된 데이터가 있으면 SQLite로 옮겨옴
@@ -109,6 +214,15 @@ function migrateFromLocalStorage() {
   }
 }
 
+// 이전 버전(체크박스로 매월 반복만 있던 시절)과의 호환을 위해 true/1은 "monthly"로 취급
+function normalizeRecurring(value) {
+  if (value === "weekly") return "weekly";
+  if (value === "monthly" || value === true || value === 1 || value === "1") {
+    return "monthly";
+  }
+  return null;
+}
+
 function insertTodoRow(t) {
   db.run(
     `INSERT INTO todos (id, text, client, category, priority, dueDate, recurring, completed, completedAt)
@@ -120,7 +234,7 @@ function insertTodoRow(t) {
       t.category || null,
       t.priority || null,
       t.dueDate || null,
-      t.recurring ? 1 : 0,
+      normalizeRecurring(t.recurring),
       t.completed ? 1 : 0,
       t.completedAt || null,
     ]
@@ -139,7 +253,7 @@ function refreshTodosFromDb() {
   todos = values.map((row) => {
     const obj = {};
     columns.forEach((col, i) => (obj[col] = row[i]));
-    obj.recurring = !!obj.recurring;
+    obj.recurring = normalizeRecurring(obj.recurring);
     obj.completed = !!obj.completed;
     return obj;
   });
@@ -160,7 +274,7 @@ function addTodo({ text, client, category, priority, dueDate, recurring }) {
     category,
     priority,
     dueDate: dueDate || null,
-    recurring: !!recurring,
+    recurring: normalizeRecurring(recurring),
     completed: false,
     completedAt: null,
   });
@@ -181,6 +295,14 @@ function getNextMonthDueDate(dateStr) {
   return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(
     day
   ).padStart(2, "0")}`;
+}
+
+// 7일 뒤의 날짜 문자열("YYYY-MM-DD")을 반환
+function getNextWeekDueDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + 7);
+  return toDateKey(date);
 }
 
 function updateTodo(id, updates) {
@@ -208,16 +330,20 @@ function toggleTodo(id) {
     id,
   ]);
 
-  // 매월 반복 항목을 완료하면 다음 달 같은 날짜로 새 항목을 자동 생성
+  // 반복 항목을 완료하면 다음 주기(매주/매월) 같은 날짜로 새 항목을 자동 생성
   if (nowCompleted && !wasCompleted && todo.recurring && todo.dueDate) {
+    const nextDueDate =
+      todo.recurring === "weekly"
+        ? getNextWeekDueDate(todo.dueDate)
+        : getNextMonthDueDate(todo.dueDate);
     insertTodoRow({
       id: Date.now(),
       text: todo.text,
       client: todo.client,
       category: todo.category,
       priority: todo.priority,
-      dueDate: getNextMonthDueDate(todo.dueDate),
-      recurring: true,
+      dueDate: nextDueDate,
+      recurring: todo.recurring,
       completed: false,
       completedAt: null,
     });
@@ -245,11 +371,11 @@ function importTodosFromJSON(jsonText) {
   try {
     imported = JSON.parse(jsonText);
   } catch {
-    alert("올바른 JSON 파일이 아닙니다.");
+    showToast("올바른 JSON 파일이 아닙니다.");
     return;
   }
   if (!Array.isArray(imported)) {
-    alert("올바른 백업 파일 형식이 아닙니다.");
+    showToast("올바른 백업 파일 형식이 아닙니다.");
     return;
   }
 
@@ -264,7 +390,7 @@ function importTodosFromJSON(jsonText) {
         t.category || null,
         t.priority || null,
         t.dueDate || null,
-        t.recurring ? 1 : 0,
+        normalizeRecurring(t.recurring),
         t.completed ? 1 : 0,
         t.completedAt || null,
       ]
@@ -272,7 +398,7 @@ function importTodosFromJSON(jsonText) {
   });
 
   persistAndRender();
-  alert(`${imported.length}개 항목을 가져왔습니다.`);
+  showToast(`${imported.length}개 항목을 가져왔습니다.`);
 }
 
 const priorityRank = { high: 3, medium: 2, low: 1 };
@@ -427,10 +553,11 @@ function render() {
       li.appendChild(span);
 
       if (todo.recurring) {
+        const recurLabel = todo.recurring === "weekly" ? "매주 반복" : "매월 반복";
         const recurBadge = document.createElement("span");
         recurBadge.className = "recurring-badge";
-        recurBadge.textContent = "반복";
-        recurBadge.title = "매월 반복";
+        recurBadge.textContent = recurLabel;
+        recurBadge.title = recurLabel;
         li.appendChild(recurBadge);
       }
 
@@ -481,6 +608,7 @@ function render() {
   renderDateFilterBar();
   renderCalendar();
   updateCategoryCounts();
+  checkBackupReminder();
 }
 
 // 카테고리 필터 탭에 카테고리별 잔여(미완료) 항목 수 표시
@@ -630,13 +758,19 @@ function renderCalendar() {
   const today = new Date();
   const todayKey = toDateKey(today);
 
-  // 날짜별 마감 todo 모으기 (미완료만 표시)
-  const dueMap = {};
-  todos
-    .filter((t) => t.dueDate && !t.completed)
-    .forEach((t) => {
-      (dueMap[t.dueDate] = dueMap[t.dueDate] || []).push(t);
-    });
+  // 날짜별로 모아서 보여줄 todo 모으기: 마감일 기준 + 완료한 날짜 기준(과거 일자 기록용)
+  const dayMap = {};
+  const addToDayMap = (key, t) => {
+    if (!key) return;
+    (dayMap[key] = dayMap[key] || []).push(t);
+  };
+  todos.forEach((t) => {
+    if (t.dueDate) addToDayMap(t.dueDate, t);
+    if (t.completedAt) {
+      const completedKey = toDateKey(new Date(t.completedAt));
+      if (completedKey !== t.dueDate) addToDayMap(completedKey, t);
+    }
+  });
 
   calGrid.innerHTML = "";
 
@@ -663,15 +797,16 @@ function renderCalendar() {
     num.textContent = day;
     cell.appendChild(num);
 
-    const dueTodos = dueMap[key];
-    if (dueTodos && dueTodos.length > 0) {
+    const dayTodos = dayMap[key];
+    if (dayTodos && dayTodos.length > 0) {
+      const allCompleted = dayTodos.every((t) => t.completed);
       const dot = document.createElement("span");
       dot.className = "due-dot";
-      dot.style.backgroundColor = getDateDotColor(key);
+      dot.style.backgroundColor = allCompleted ? "#16a34a" : getDateDotColor(key);
       cell.appendChild(dot);
 
       cell.addEventListener("mouseenter", () =>
-        showCalendarTooltip(cell, key, dueTodos)
+        showCalendarTooltip(cell, key, dayTodos)
       );
       cell.addEventListener("mouseleave", hideCalendarTooltip);
     }
@@ -681,8 +816,8 @@ function renderCalendar() {
 }
 
 // 우선순위가 높은 순, 동일 우선순위 내에서는 거래처명순으로 정렬해 보여줌
-function showCalendarTooltip(cell, dateKey, dueTodos) {
-  const sorted = [...dueTodos].sort(
+function showCalendarTooltip(cell, dateKey, dayTodos) {
+  const sorted = [...dayTodos].sort(
     (a, b) =>
       priorityRank[b.priority] - priorityRank[a.priority] ||
       compareByClient(a, b)
@@ -692,12 +827,14 @@ function showCalendarTooltip(cell, dateKey, dueTodos) {
 
   const header = document.createElement("div");
   header.className = "calendar-tooltip-header";
-  header.textContent = `${dateKey} 마감 (${sorted.length}건)`;
+  header.textContent = `${dateKey} (${sorted.length}건)`;
   calendarTooltip.appendChild(header);
 
   sorted.forEach((t) => {
     const item = document.createElement("div");
-    item.className = "calendar-tooltip-item";
+    item.className = `calendar-tooltip-item${
+      t.completed ? " completed-item" : ""
+    }`;
 
     const dot = document.createElement("span");
     dot.className = "calendar-tooltip-dot";
@@ -716,6 +853,13 @@ function showCalendarTooltip(cell, dateKey, dueTodos) {
     text.textContent = t.text;
     item.appendChild(text);
 
+    if (t.completed) {
+      const doneTag = document.createElement("span");
+      doneTag.className = "calendar-tooltip-done";
+      doneTag.textContent = "완료";
+      item.appendChild(doneTag);
+    }
+
     calendarTooltip.appendChild(item);
   });
 
@@ -730,6 +874,63 @@ function showCalendarTooltip(cell, dateKey, dueTodos) {
 
 function hideCalendarTooltip() {
   calendarTooltip.style.display = "none";
+}
+
+// 전체 todos를 JSON으로 내보냄 ("데이터 가져오기"로 그대로 복원 가능)
+function exportFullBackup() {
+  if (todos.length === 0) {
+    showToast("백업할 항목이 없습니다.");
+    return;
+  }
+
+  const json = JSON.stringify(todos, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  a.href = url;
+  a.download = `todos-full-backup-${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  const now = new Date();
+  localStorage.setItem(LAST_BACKUP_KEY, now.toISOString());
+  backupReminderBar.hidden = true;
+
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  showToast(
+    `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${hh}시 ${mm}분에 백업되었습니다. (${todos.length}개 항목)`,
+    6000
+  );
+}
+
+// 마지막 백업이 오래됐거나 한 번도 없으면 알림 배너를 보여줌
+function checkBackupReminder() {
+  if (todos.length === 0) return;
+
+  const lastBackupAt = localStorage.getItem(LAST_BACKUP_KEY);
+  if (!lastBackupAt) {
+    backupReminderLabel.textContent =
+      "아직 백업한 적이 없습니다. 데이터 보호를 위해 백업을 추천합니다.";
+    backupReminderBar.hidden = false;
+    return;
+  }
+
+  const daysSince = Math.floor(
+    (Date.now() - new Date(lastBackupAt).getTime()) / 86400000
+  );
+  if (daysSince >= BACKUP_REMINDER_DAYS) {
+    backupReminderLabel.textContent = `마지막 백업으로부터 ${daysSince}일 지났습니다. 백업을 추천합니다.`;
+    backupReminderBar.hidden = false;
+  } else {
+    backupReminderBar.hidden = true;
+  }
 }
 
 function escapeCsvField(field) {
@@ -752,7 +953,7 @@ function exportMonthToCSV() {
   });
 
   if (monthTodos.length === 0) {
-    alert(`${year}년 ${month + 1}월에 마감일이 있는 항목이 없습니다.`);
+    showToast(`${year}년 ${month + 1}월에 마감일이 있는 항목이 없습니다.`);
     return;
   }
 
@@ -797,6 +998,12 @@ function exportMonthToCSV() {
 
 exportBtn.addEventListener("click", exportMonthToCSV);
 
+backupBtn.addEventListener("click", exportFullBackup);
+backupReminderBackupBtn.addEventListener("click", exportFullBackup);
+backupReminderDismissBtn.addEventListener("click", () => {
+  backupReminderBar.hidden = true;
+});
+
 importBtn.addEventListener("click", () => importFileInput.click());
 
 importFileInput.addEventListener("change", () => {
@@ -822,20 +1029,26 @@ todoForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const text = todoInput.value.trim();
   if (!text) return;
+  const client = clientInput.value.trim();
   addTodo({
     text,
-    client: clientInput.value.trim(),
+    client,
     category: categorySelect.value,
     priority: prioritySelect.value,
     dueDate: dueDateInput.value,
-    recurring: recurringCheckbox.checked,
+    recurring: recurringSelect.value,
   });
+  addToRecentList(RECENT_TASKS_KEY, text);
+  addToRecentList(RECENT_CLIENTS_KEY, client);
   todoInput.value = "";
   clientInput.value = "";
   dueDateInput.value = "";
-  recurringCheckbox.checked = false;
+  recurringSelect.value = "";
   todoInput.focus();
 });
+
+setupAutocomplete(todoInput, todoInputSuggestions, RECENT_TASKS_KEY);
+setupAutocomplete(clientInput, clientInputSuggestions, RECENT_CLIENTS_KEY);
 
 filterButtons.addEventListener("click", (e) => {
   const btn = e.target.closest(".filter-btn");
@@ -916,6 +1129,15 @@ function showFileProtocolExportNotice() {
   banner.appendChild(btn);
   document.querySelector(".app").prepend(banner);
 }
+
+// 탭을 며칠째 켜둔 채로 두더라도, 다시 화면을 보러 돌아왔을 때 마감일 자동 미루기가 적용되도록 함
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && db) {
+    refreshTodosFromDb();
+    rolloverOverdueDueDates();
+    render();
+  }
+});
 
 if (location.protocol === "file:") {
   showFileProtocolExportNotice();

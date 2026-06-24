@@ -1,6 +1,14 @@
-const IDB_NAME = "healthLogDB";
-const IDB_STORE = "sqlite";
-const IDB_KEY = "dbfile";
+/* ---------- DOM ---------- */
+const authGate = document.getElementById("auth-gate");
+const appRoot = document.getElementById("app-root");
+const googleSigninBtn = document.getElementById("google-signin-btn");
+const authStatus = document.getElementById("auth-status");
+const userEmailEl = document.getElementById("user-email");
+const signoutBtn = document.getElementById("signout-btn");
+
+const migrateModal = document.getElementById("migrate-modal");
+const migrateSkip = document.getElementById("migrate-skip");
+const migrateImport = document.getElementById("migrate-import");
 
 const tabButtons = document.getElementById("tab-buttons");
 const prevDayBtn = document.getElementById("prev-day-btn");
@@ -42,13 +50,7 @@ const settingsModalSave = document.getElementById("settings-modal-save");
 const RECENT_DIET_KEY = "healthLogRecentDiet";
 const RECENT_EXERCISE_KEY = "healthLogRecentExercise";
 const MAX_RECENT = 5;
-const BMR_KEY = "healthLogBMR";
-const AGE_KEY = "healthLogAge";
-const GENDER_KEY = "healthLogGender";
-const GOAL_KEY = "healthLogGoal";
-const CARB_TARGET_KEY = "healthLogCarbTarget";
-const PROTEIN_TARGET_KEY = "healthLogProteinTarget";
-const FAT_TARGET_KEY = "healthLogFatTarget";
+const MIGRATION_DISMISSED_KEY = "healthLogMigrationDismissed";
 
 let toastTimer = null;
 function showToast(message, duration = 3000) {
@@ -60,11 +62,17 @@ function showToast(message, duration = 3000) {
   }, duration);
 }
 
-let db = null;
 let logs = [];
 let calorieMap = {};
+let cachedSettings = { goal: "maintain" };
 let currentType = "diet";
 let editingId = null;
+let currentUser = null;
+let logsLoaded = false;
+let pendingMigrationData = null;
+let unsubscribeLogs = null;
+let unsubscribeDict = null;
+let unsubscribeSettings = null;
 
 function toDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
@@ -75,156 +83,191 @@ function toDateKey(date) {
 
 let selectedDate = toDateKey(new Date());
 
-/* ---------- IndexedDB: sql.js가 만든 SQLite 파일(바이너리)을 저장/로드 ---------- */
-function openIDB() {
+/* ---------- Firebase 인증/Firestore ---------- */
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const firestoreDb = firebase.firestore();
+firestoreDb.enablePersistence().catch(() => {
+  /* 여러 탭이 열려있으면 실패할 수 있음 - 무시해도 됨 */
+});
+
+function logsCollection() {
+  return firestoreDb.collection("users").doc(currentUser.uid).collection("logs");
+}
+function dictCollection() {
+  return firestoreDb
+    .collection("users")
+    .doc(currentUser.uid)
+    .collection("calorieDict");
+}
+function settingsDocRef() {
+  return firestoreDb
+    .collection("users")
+    .doc(currentUser.uid)
+    .collection("meta")
+    .doc("settings");
+}
+
+googleSigninBtn.addEventListener("click", async () => {
+  authStatus.textContent = "";
+  try {
+    await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+  } catch (err) {
+    authStatus.textContent = `로그인에 실패했습니다: ${err.message}`;
+  }
+});
+
+signoutBtn.addEventListener("click", () => auth.signOut());
+
+auth.onAuthStateChanged((user) => {
+  detachListeners();
+  if (user) {
+    currentUser = user;
+    authGate.hidden = true;
+    appRoot.hidden = false;
+    userEmailEl.textContent = user.email || "";
+    render();
+    attachListeners();
+  } else {
+    currentUser = null;
+    logs = [];
+    calorieMap = {};
+    cachedSettings = { goal: "maintain" };
+    authGate.hidden = false;
+    appRoot.hidden = true;
+  }
+});
+
+function attachListeners() {
+  logsLoaded = false;
+  unsubscribeLogs = logsCollection().onSnapshot((snapshot) => {
+    logs = snapshot.docs.map((d) => d.data());
+    if (!logsLoaded) {
+      logsLoaded = true;
+      maybeOfferMigration();
+    }
+    render();
+  });
+
+  unsubscribeDict = dictCollection().onSnapshot((snapshot) => {
+    calorieMap = {};
+    snapshot.docs.forEach((d) => {
+      calorieMap[d.id] = d.data();
+    });
+  });
+
+  unsubscribeSettings = settingsDocRef().onSnapshot((snap) => {
+    cachedSettings = snap.exists ? snap.data() : { goal: "maintain" };
+    render();
+  });
+}
+
+function detachListeners() {
+  if (unsubscribeLogs) unsubscribeLogs();
+  if (unsubscribeDict) unsubscribeDict();
+  if (unsubscribeSettings) unsubscribeSettings();
+  unsubscribeLogs = unsubscribeDict = unsubscribeSettings = null;
+}
+
+/* ---------- 기존 기기에 남아있던 SQLite 기록을 한 번만 가져오기 ---------- */
+function openOldIDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    const req = indexedDB.open("healthLogDB", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("sqlite");
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function loadDbFile() {
-  const idb = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, "readonly");
-    const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
-    req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error);
-  });
-}
+async function readOldSqliteData() {
+  try {
+    const idb = await openOldIDB();
+    const fileData = await new Promise((resolve, reject) => {
+      const tx = idb.transaction("sqlite", "readonly");
+      const req = tx.objectStore("sqlite").get("dbfile");
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    idb.close();
+    if (!fileData) return null;
 
-async function persistDb() {
-  const data = db.export();
-  const idb = await openIDB();
-  return new Promise((resolve, reject) => {
-    const tx = idb.transaction(IDB_STORE, "readwrite");
-    tx.objectStore(IDB_STORE).put(data, IDB_KEY);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-/* ---------- SQLite 초기화 ---------- */
-async function initDatabase() {
-  const SQL = await initSqlJs({
-    locateFile: (file) => `../vendor/${file}`,
-  });
-
-  const existing = await loadDbFile();
-  if (existing) {
-    db = new SQL.Database(existing);
-    migrateSchema();
-  } else {
-    db = new SQL.Database();
-    db.run(`
-      CREATE TABLE logs (
-        id INTEGER PRIMARY KEY,
-        type TEXT NOT NULL,
-        date TEXT NOT NULL,
-        time TEXT NOT NULL,
-        text TEXT NOT NULL,
-        kcal REAL,
-        carb REAL,
-        protein REAL,
-        fat REAL,
-        createdAt TEXT NOT NULL
-      );
-    `);
-    db.run(`
-      CREATE TABLE calorie_dict (
-        type TEXT NOT NULL,
-        text TEXT NOT NULL,
-        kcal REAL NOT NULL,
-        carb REAL,
-        protein REAL,
-        fat REAL,
-        PRIMARY KEY (type, text)
-      );
-    `);
-    await persistDb();
-  }
-
-  loadCalorieDict();
-  refreshLogsFromDb();
-  render();
-}
-
-// 기존 DB라면 누락된 컬럼/테이블을 보강
-function migrateSchema() {
-  const cols = db.exec("PRAGMA table_info(logs)");
-  const colNames = cols.length ? cols[0].values.map((row) => row[1]) : [];
-  if (!colNames.includes("kcal")) {
-    db.run("ALTER TABLE logs ADD COLUMN kcal REAL");
-  }
-  ["carb", "protein", "fat"].forEach((col) => {
-    if (!colNames.includes(col)) {
-      db.run(`ALTER TABLE logs ADD COLUMN ${col} REAL`);
-    }
-  });
-  db.run(`
-    CREATE TABLE IF NOT EXISTS calorie_dict (
-      type TEXT NOT NULL,
-      text TEXT NOT NULL,
-      kcal REAL NOT NULL,
-      carb REAL,
-      protein REAL,
-      fat REAL,
-      PRIMARY KEY (type, text)
+    const SQL = await initSqlJs({ locateFile: (f) => `../vendor/${f}` });
+    const oldDb = new SQL.Database(fileData);
+    const toObjs = (result) => {
+      if (!result.length) return [];
+      const { columns, values } = result[0];
+      return values.map((row) => {
+        const obj = {};
+        columns.forEach((c, i) => (obj[c] = row[i]));
+        return obj;
+      });
+    };
+    const logsData = toObjs(
+      oldDb.exec(
+        "SELECT id, type, date, time, text, kcal, carb, protein, fat, createdAt FROM logs"
+      )
     );
-  `);
-  const dictCols = db.exec("PRAGMA table_info(calorie_dict)");
-  const dictColNames = dictCols.length
-    ? dictCols[0].values.map((row) => row[1])
-    : [];
-  ["carb", "protein", "fat"].forEach((col) => {
-    if (!dictColNames.includes(col)) {
-      db.run(`ALTER TABLE calorie_dict ADD COLUMN ${col} REAL`);
-    }
-  });
-  backfillMissingMacros();
-  persistDb();
+    const dictData = toObjs(
+      oldDb.exec("SELECT type, text, kcal, carb, protein, fat FROM calorie_dict")
+    );
+    return { logs: logsData, dict: dictData };
+  } catch {
+    return null;
+  }
 }
 
-// 영양소 기능 추가 전에 기록된 식단 항목 중, 지금 사전에 있는 단어와 일치하면 탄단지를 채워줌
-function backfillMissingMacros() {
-  const result = db.exec(
-    "SELECT id, text FROM logs WHERE type = 'diet' AND carb IS NULL"
-  );
-  if (result.length === 0) return;
-  const { values } = result[0];
-  values.forEach(([id, text]) => {
-    const nutrition = estimateDietNutrition(text);
-    if (!nutrition) return;
-    db.run("UPDATE logs SET carb = ?, protein = ?, fat = ? WHERE id = ?", [
-      nutrition.carb,
-      nutrition.protein,
-      nutrition.fat,
-      id,
-    ]);
-  });
+async function maybeOfferMigration() {
+  if (logs.length > 0) return;
+  if (localStorage.getItem(MIGRATION_DISMISSED_KEY)) return;
+  const oldData = await readOldSqliteData();
+  if (!oldData || (oldData.logs.length === 0 && oldData.dict.length === 0)) return;
+  pendingMigrationData = oldData;
+  migrateModal.hidden = false;
 }
+
+migrateSkip.addEventListener("click", () => {
+  localStorage.setItem(MIGRATION_DISMISSED_KEY, "1");
+  migrateModal.hidden = true;
+  pendingMigrationData = null;
+});
+
+migrateImport.addEventListener("click", async () => {
+  if (!pendingMigrationData || !currentUser) return;
+  migrateModal.hidden = true;
+  const batch = firestoreDb.batch();
+  pendingMigrationData.logs.forEach((l) => {
+    batch.set(logsCollection().doc(String(l.id)), {
+      id: l.id,
+      type: l.type,
+      date: l.date,
+      time: l.time,
+      text: l.text,
+      kcal: l.kcal ?? null,
+      carb: l.carb ?? null,
+      protein: l.protein ?? null,
+      fat: l.fat ?? null,
+      createdAt: l.createdAt,
+    });
+  });
+  pendingMigrationData.dict.forEach((d) => {
+    batch.set(dictCollection().doc(dictKey(d.type, d.text)), {
+      type: d.type,
+      text: d.text,
+      kcal: d.kcal,
+      carb: d.carb ?? null,
+      protein: d.protein ?? null,
+      fat: d.fat ?? null,
+    });
+  });
+  const count = pendingMigrationData.logs.length;
+  await batch.commit();
+  localStorage.setItem(MIGRATION_DISMISSED_KEY, "1");
+  showToast(`${count}개 항목을 가져왔습니다.`);
+  pendingMigrationData = null;
+});
 
 function dictKey(type, text) {
   return `${type}:::${text.trim().toLowerCase()}`;
-}
-
-function loadCalorieDict() {
-  const result = db.exec("SELECT type, text, kcal, carb, protein, fat FROM calorie_dict");
-  calorieMap = {};
-  if (result.length === 0) return;
-  const { columns, values } = result[0];
-  values.forEach((row) => {
-    const obj = {};
-    columns.forEach((col, i) => (obj[col] = row[i]));
-    calorieMap[dictKey(obj.type, obj.text)] = {
-      kcal: obj.kcal,
-      carb: obj.carb,
-      protein: obj.protein,
-      fat: obj.fat,
-    };
-  });
 }
 
 // undefined: 한 번도 입력된 적 없는 항목 / null: 입력 자체가 없었던 항목
@@ -233,20 +276,18 @@ function lookupNutrition(type, text) {
 }
 
 function saveNutrition(type, text, nutrition) {
+  if (!currentUser) return;
   const normalized = text.trim().toLowerCase();
-  db.run(
-    `INSERT OR REPLACE INTO calorie_dict (type, text, kcal, carb, protein, fat) VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      type,
-      normalized,
-      nutrition.kcal,
-      nutrition.carb ?? null,
-      nutrition.protein ?? null,
-      nutrition.fat ?? null,
-    ]
-  );
-  calorieMap[dictKey(type, text)] = nutrition;
-  persistDb();
+  const key = dictKey(type, text);
+  calorieMap[key] = nutrition;
+  dictCollection().doc(key).set({
+    type,
+    text: normalized,
+    kcal: nutrition.kcal,
+    carb: nutrition.carb ?? null,
+    protein: nutrition.protein ?? null,
+    fat: nutrition.fat ?? null,
+  });
 }
 
 /* ---------- 내장 사전 기반 칼로리·영양소 자동 추정(근사값) ---------- */
@@ -355,46 +396,6 @@ function estimateNutrition(type, text) {
   return kcal === null ? null : { kcal, carb: null, protein: null, fat: null };
 }
 
-function insertLogRow(l) {
-  db.run(
-    `INSERT INTO logs (id, type, date, time, text, kcal, carb, protein, fat, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      l.id,
-      l.type,
-      l.date,
-      l.time,
-      l.text,
-      l.kcal ?? null,
-      l.carb ?? null,
-      l.protein ?? null,
-      l.fat ?? null,
-      l.createdAt,
-    ]
-  );
-}
-
-function refreshLogsFromDb() {
-  const result = db.exec(
-    "SELECT id, type, date, time, text, kcal, carb, protein, fat, createdAt FROM logs"
-  );
-  if (result.length === 0) {
-    logs = [];
-    return;
-  }
-  const { columns, values } = result[0];
-  logs = values.map((row) => {
-    const obj = {};
-    columns.forEach((col, i) => (obj[col] = row[i]));
-    return obj;
-  });
-}
-
-function persistAndRender() {
-  refreshLogsFromDb();
-  persistDb();
-  render();
-}
-
 function nowTimeStr() {
   const now = new Date();
   return `${String(now.getHours()).padStart(2, "0")}:${String(
@@ -403,46 +404,48 @@ function nowTimeStr() {
 }
 
 function addLog(text, nutrition) {
-  if (!db) return;
+  if (!currentUser) return;
   const n = nutrition || {};
-  insertLogRow({
-    id: Date.now(),
-    type: currentType,
-    date: selectedDate,
-    time: nowTimeStr(),
-    text,
-    kcal: n.kcal ?? null,
-    carb: n.carb ?? null,
-    protein: n.protein ?? null,
-    fat: n.fat ?? null,
-    createdAt: new Date().toISOString(),
-  });
-  persistAndRender();
+  const id = Date.now();
+  logsCollection()
+    .doc(String(id))
+    .set({
+      id,
+      type: currentType,
+      date: selectedDate,
+      time: nowTimeStr(),
+      text,
+      kcal: n.kcal ?? null,
+      carb: n.carb ?? null,
+      protein: n.protein ?? null,
+      fat: n.fat ?? null,
+      createdAt: new Date().toISOString(),
+    });
 }
 
 function updateLog(id, text, nutrition) {
-  if (!db) return;
+  if (!currentUser) return;
   const log = logs.find((l) => l.id === id);
   const n = nutrition || {};
-  db.run("UPDATE logs SET text = ?, kcal = ?, carb = ?, protein = ?, fat = ? WHERE id = ?", [
-    text,
-    n.kcal ?? null,
-    n.carb ?? null,
-    n.protein ?? null,
-    n.fat ?? null,
-    id,
-  ]);
+  logsCollection()
+    .doc(String(id))
+    .update({
+      text,
+      kcal: n.kcal ?? null,
+      carb: n.carb ?? null,
+      protein: n.protein ?? null,
+      fat: n.fat ?? null,
+    });
   if (n.kcal !== null && n.kcal !== undefined && log) {
     saveNutrition(log.type, text, n);
   }
   editingId = null;
-  persistAndRender();
+  render();
 }
 
 function deleteLog(id) {
-  if (!db) return;
-  db.run("DELETE FROM logs WHERE id = ?", [id]);
-  persistAndRender();
+  if (!currentUser) return;
+  logsCollection().doc(String(id)).delete();
 }
 
 /* ---------- 최근 입력값(자동완성) ---------- */
@@ -556,40 +559,33 @@ function askNutrition(text, type) {
   });
 }
 
-/* ---------- 기초대사량/나이/성별/목표 설정 ---------- */
+/* ---------- 기초대사량/나이/성별/목표 설정 (Firestore에 저장 -> 기기 간 자동 동기화) ---------- */
 function getSettings() {
-  const bmr = parseFloat(localStorage.getItem(BMR_KEY));
-  const age = parseFloat(localStorage.getItem(AGE_KEY));
-  const gender = localStorage.getItem(GENDER_KEY) || null;
-  const goal = localStorage.getItem(GOAL_KEY) || "maintain";
-  const carbTarget = parseFloat(localStorage.getItem(CARB_TARGET_KEY));
-  const proteinTarget = parseFloat(localStorage.getItem(PROTEIN_TARGET_KEY));
-  const fatTarget = parseFloat(localStorage.getItem(FAT_TARGET_KEY));
   return {
-    bmr: Number.isFinite(bmr) ? bmr : null,
-    age: Number.isFinite(age) ? age : null,
-    gender,
-    goal,
-    carbTarget: Number.isFinite(carbTarget) ? carbTarget : null,
-    proteinTarget: Number.isFinite(proteinTarget) ? proteinTarget : null,
-    fatTarget: Number.isFinite(fatTarget) ? fatTarget : null,
+    bmr: cachedSettings.bmr ?? null,
+    age: cachedSettings.age ?? null,
+    gender: cachedSettings.gender ?? null,
+    goal: cachedSettings.goal || "maintain",
+    carbTarget: cachedSettings.carbTarget ?? null,
+    proteinTarget: cachedSettings.proteinTarget ?? null,
+    fatTarget: cachedSettings.fatTarget ?? null,
   };
 }
 
 function saveSettings(bmr, age, gender, goal, carbTarget, proteinTarget, fatTarget) {
-  if (bmr === null) localStorage.removeItem(BMR_KEY);
-  else localStorage.setItem(BMR_KEY, String(bmr));
-  if (age === null) localStorage.removeItem(AGE_KEY);
-  else localStorage.setItem(AGE_KEY, String(age));
-  if (!gender) localStorage.removeItem(GENDER_KEY);
-  else localStorage.setItem(GENDER_KEY, gender);
-  localStorage.setItem(GOAL_KEY, goal || "maintain");
-  if (carbTarget === null) localStorage.removeItem(CARB_TARGET_KEY);
-  else localStorage.setItem(CARB_TARGET_KEY, String(carbTarget));
-  if (proteinTarget === null) localStorage.removeItem(PROTEIN_TARGET_KEY);
-  else localStorage.setItem(PROTEIN_TARGET_KEY, String(proteinTarget));
-  if (fatTarget === null) localStorage.removeItem(FAT_TARGET_KEY);
-  else localStorage.setItem(FAT_TARGET_KEY, String(fatTarget));
+  if (!currentUser) return;
+  settingsDocRef().set(
+    {
+      bmr,
+      age,
+      gender,
+      goal: goal || "maintain",
+      carbTarget,
+      proteinTarget,
+      fatTarget,
+    },
+    { merge: true }
+  );
 }
 
 settingsBtn.addEventListener("click", () => {
@@ -994,7 +990,7 @@ function exportBackup() {
 }
 
 function importFromJSON(jsonText) {
-  if (!db) return;
+  if (!currentUser) return;
   let imported;
   try {
     imported = JSON.parse(jsonText);
@@ -1007,24 +1003,24 @@ function importFromJSON(jsonText) {
     return;
   }
 
+  const batch = firestoreDb.batch();
   imported.forEach((l) => {
-    db.run(
-      `INSERT OR REPLACE INTO logs (id, type, date, time, text, kcal, carb, protein, fat, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        l.id,
-        l.type,
-        l.date,
-        l.time,
-        l.text,
-        l.kcal ?? null,
-        l.carb ?? null,
-        l.protein ?? null,
-        l.fat ?? null,
-        l.createdAt,
-      ]
-    );
+    batch.set(logsCollection().doc(String(l.id)), {
+      id: l.id,
+      type: l.type,
+      date: l.date,
+      time: l.time,
+      text: l.text,
+      kcal: l.kcal ?? null,
+      carb: l.carb ?? null,
+      protein: l.protein ?? null,
+      fat: l.fat ?? null,
+      createdAt: l.createdAt,
+    });
     if (l.kcal != null) {
-      saveNutrition(l.type, l.text, {
+      batch.set(dictCollection().doc(dictKey(l.type, l.text)), {
+        type: l.type,
+        text: l.text.trim().toLowerCase(),
         kcal: l.kcal,
         carb: l.carb ?? null,
         protein: l.protein ?? null,
@@ -1033,8 +1029,9 @@ function importFromJSON(jsonText) {
     }
   });
 
-  persistAndRender();
-  showToast(`${imported.length}개 항목을 가져왔습니다.`);
+  batch.commit().then(() => {
+    showToast(`${imported.length}개 항목을 가져왔습니다.`);
+  });
 }
 
 /* ---------- 이벤트 ---------- */
@@ -1068,7 +1065,7 @@ todayBtn.addEventListener("click", () => {
 addForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = entryInput.value.trim();
-  if (!text) return;
+  if (!text || !currentUser) return;
   entryInput.value = "";
   entrySuggestions.hidden = true;
 
@@ -1112,14 +1109,3 @@ importFileInput.addEventListener("change", () => {
   reader.readAsText(file);
   importFileInput.value = "";
 });
-
-if (location.protocol === "file:") {
-  document.querySelector(".app").insertAdjacentHTML(
-    "afterbegin",
-    `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:14px;margin:14px;font-size:0.85rem;color:#92400e;line-height:1.5;">
-      이 위치(file://)에서는 SQLite 기능이 동작하지 않습니다. http://localhost:8000/health-log/ 로 열어서 사용해 주세요.
-    </div>`
-  );
-} else {
-  initDatabase();
-}

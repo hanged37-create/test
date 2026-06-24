@@ -8,16 +8,27 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
+  <div id="auth-gate" class="auth-gate">
+    <div class="auth-box">
+      <h1>식단·운동 기록</h1>
+      <p>구글 계정으로 로그인하면 PC와 폰에서 자동으로 동기화됩니다.</p>
+      <button type="button" id="google-signin-btn">🔵 Google로 로그인</button>
+      <p id="auth-status" class="auth-status"></p>
+    </div>
+  </div>
+
+  <div class="app" id="app-root" hidden>
     <header class="app-header">
       <h1>식단·운동 기록</h1>
       <div class="header-actions">
         <button type="button" id="settings-btn" title="기초대사량/나이 설정">⚙ 설정</button>
         <button type="button" id="backup-btn" title="전체 데이터를 JSON 파일로 백업">백업</button>
         <button type="button" id="import-btn" title="백업 파일에서 가져오기">가져오기</button>
+        <button type="button" id="signout-btn" title="로그아웃">로그아웃</button>
         <input type="file" id="import-file-input" accept="application/json" hidden />
       </div>
     </header>
+    <div id="user-email" class="user-email"></div>
 
     <div class="tabs" id="tab-buttons">
       <button class="tab-btn active" data-type="diet">🍱 식단</button>
@@ -97,8 +108,22 @@
     </div>
   </div>
 
+  <div id="migrate-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <p>이 기기에 예전에 저장해둔 기록이 있어요. 지금 계정으로 가져올까요? (한 번만 물어봐요)</p>
+      <div class="modal-actions">
+        <button type="button" id="migrate-skip">아니요</button>
+        <button type="button" id="migrate-import">가져오기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="../vendor/sql-wasm.js"></script>
   <script src="script.js"></script>
 </body>
