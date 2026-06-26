@@ -1,0 +1,6 @@
+Flask
+requests
+openpyxl
+pytesseract
+Pillow
+PyMuPDF

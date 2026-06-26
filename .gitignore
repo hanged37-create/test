@@ -2,3 +2,6 @@
 *-backup-*.json
 todos-full-backup*.json
 health-log-backup*.json
+__pycache__/
+*.pyc
+*.log
